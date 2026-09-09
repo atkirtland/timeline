@@ -1,0 +1,33 @@
+.native-timeline { position: relative; color: var(--text-normal); font: var(--font-ui-small); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); background: var(--background-primary); overflow: hidden; }
+.native-timeline .nt-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px; border-bottom: 1px solid var(--background-modifier-border); background: var(--background-secondary); }
+.native-timeline button, .native-timeline select { font: inherit; color: var(--text-normal); background: var(--interactive-normal); border: 1px solid var(--background-modifier-border); border-radius: var(--button-radius); padding: 4px 8px; box-shadow: none; }
+.native-timeline button:hover { background: var(--interactive-hover); }
+.native-timeline .nt-check { display: inline-flex; align-items: center; gap: 3px; text-transform: capitalize; }
+.native-timeline .nt-diagnostics { margin-left: auto; position: relative; }
+.native-timeline .nt-diagnostics > div { white-space: pre-wrap; position: absolute; right: 0; z-index: 5; width: min(420px, 80vw); max-height: 220px; overflow: auto; padding: 8px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); box-shadow: var(--shadow-s); }
+.native-timeline .nt-canvas { min-height: 100px; overflow-y: auto; touch-action: none; cursor: grab; }
+.native-timeline .nt-canvas:active { cursor: grabbing; }
+.native-timeline svg { display: block; user-select: none; }
+.native-timeline .nt-hit-area { fill: transparent; pointer-events: all; }
+.native-timeline .nt-axis { stroke: var(--text-muted); }
+.native-timeline .nt-grid { stroke: var(--background-modifier-border); stroke-width: .7; }
+.native-timeline .nt-tick { fill: var(--text-muted); font-size: 10px; }
+.native-timeline .nt-row-bg { fill: transparent; }
+.native-timeline .nt-row:hover .nt-row-bg { fill: var(--background-modifier-hover); }
+.native-timeline .nt-label { fill: var(--text-normal); font-size: 12px; cursor: pointer; }
+.native-timeline .nt-band { fill: var(--interactive-accent); opacity: .72; }
+.native-timeline .nt-project .nt-band, .native-timeline .nt-event:has(.nt-band) .nt-band { opacity: .48; }
+.native-timeline .nt-mark { fill: var(--interactive-accent); stroke: var(--background-primary); stroke-width: 1.5; }
+.native-timeline .nt-compact { fill: var(--text-on-accent); stroke: var(--interactive-accent); stroke-width: 1; }
+.native-timeline .nt-completed, .native-timeline .nt-cancelled { opacity: .48; }
+.native-timeline .nt-cancelled .nt-band, .native-timeline .nt-cancelled .nt-mark { fill: var(--text-error); }
+.native-timeline .nt-scheduled { stroke: var(--text-accent); stroke-width: 3; }
+.native-timeline .nt-cont { fill: none; stroke: var(--text-on-accent); stroke-width: 2; }
+.native-timeline .nt-cursor { pointer-events: none; }
+.native-timeline .nt-cursor-line { stroke: var(--text-accent); stroke-width: 1; stroke-dasharray: 3 3; }
+.native-timeline .nt-cursor-label { fill: var(--text-accent); stroke: var(--background-primary); stroke-width: 3px; paint-order: stroke; font-size: 10px; font-weight: var(--font-semibold); }
+.native-timeline .nt-tooltip { display: none; position: absolute; z-index: 10; pointer-events: none; max-width: 360px; padding: 8px 10px; color: var(--text-normal); background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); box-shadow: var(--shadow-s); font-size: 12px; }
+.native-timeline .nt-tooltip.is-visible { display: block; }
+.native-timeline .nt-tooltip > div { margin-top: 3px; color: var(--text-muted); }
+.native-timeline .nt-status { padding: 5px 8px; border-top: 1px solid var(--background-modifier-border); color: var(--text-muted); font-size: 11px; }
+@media (max-width: 600px) { .native-timeline .nt-label { font-size: 10px; } .native-timeline .nt-toolbar { gap: 4px; } }
