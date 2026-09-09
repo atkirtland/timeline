@@ -302,9 +302,13 @@
     rows.forEach(({ item, depth }, idx) => {
       const y=axisH+idx*rowH, g=svgEl("g",{class:"nt-row nt-"+item.kind+(item.status?" nt-"+item.status:"")},svg);
       svgEl("rect",{x:0,y,width,height:rowH,class:"nt-row-bg"},g);
-      const hasChildren=(item.children||[]).length>0, label=svgEl("text",{x:8+depth*14,y:y+20,class:"nt-label"},g);
+      const hasChildren=(item.children||[]).length>0;
+      const toggle=()=>{if(hasChildren){state.expanded.has(item.id)?state.expanded.delete(item.id):state.expanded.add(item.id);render();}else navigate(item);};
+      const labelHit=svgEl("rect",{x:0,y,width:labelW,height:rowH,class:"nt-label-hit"},g);
+      labelHit.addEventListener("pointerdown",e=>e.stopPropagation()); labelHit.addEventListener("click",toggle);
+      const label=svgEl("text",{x:8+depth*14,y:y+20,class:"nt-label"},g);
       label.textContent=(hasChildren?(state.expanded.has(item.id)?"▾ ":"▸ "):"")+(item.displayLabel||item.label||"(untitled)");
-      label.addEventListener("click",()=>{ if(hasChildren){state.expanded.has(item.id)?state.expanded.delete(item.id):state.expanded.add(item.id);render();}else navigate(item); });
+      label.addEventListener("pointerdown",e=>e.stopPropagation()); label.addEventListener("click",toggle);
       const rawA=plotX(item.start), rawB=plotX(item.end??item.start), a=Math.max(labelW,rawA), b=Math.min(width,rawB), clippedL=rawA<labelW, clippedR=rawB>width;
       if(item.point || Math.abs(b-a)<3) svgEl("circle",{cx:Math.max(labelW,Math.min(width,rawA)),cy:y+rowH/2,r:item.kind==="project"?5:4,class:"nt-mark"},g);
       else if(b>=labelW&&a<=width) { svgEl("rect",{x:a,y:y+8,width:Math.max(3,b-a),height:item.kind==="project"?14:10,rx:4,class:"nt-band"},g); if(clippedL) svgEl("path",{d:`M${labelW+6},${y+8} L${labelW},${y+15} L${labelW+6},${y+22}`,class:"nt-cont"},g); if(clippedR) svgEl("path",{d:`M${width-6},${y+8} L${width},${y+15} L${width-6},${y+22}`,class:"nt-cont"},g); }
@@ -314,12 +318,13 @@
         const tx=Math.max(labelW,Math.min(width,plotX(task.start)));
         svgEl("circle",{cx:tx,cy:y+rowH/2,r:2.5,class:"nt-compact nt-"+task.status},g);
       }
-      g.addEventListener("mousemove",e=>showTip(item,e)); g.addEventListener("mouseleave",()=>tooltip.classList.remove("is-visible")); g.addEventListener("dblclick",()=>navigate(item));
+      if(item.kind!=="project") g.addEventListener("mousemove",e=>showTip(item,e));
+      g.addEventListener("mouseleave",()=>tooltip.classList.remove("is-visible")); g.addEventListener("dblclick",()=>navigate(item));
     });
     const cursor = svgEl("g", { class: "nt-cursor", visibility: "hidden", "aria-hidden": "true" }, svg);
     svgEl("line", { x1: labelW, x2: labelW, y1: axisH-6, y2: height, class: "nt-cursor-line" }, cursor);
     svgEl("text", { x: labelW+6, y: axisH+11, class: "nt-cursor-label" }, cursor);
-    statusLine.textContent = rows.length + " visible item" + (rows.length===1?"":"s") + (model.undated ? " · " + model.undated + " undated item" + (model.undated===1?"":"s") : "") + " · wheel to zoom, drag to pan";
+    statusLine.textContent = rows.length + " visible item" + (rows.length===1?"":"s") + (model.undated ? " · " + model.undated + " undated item" + (model.undated===1?"":"s") : "") + " · Ctrl + wheel to zoom, drag to pan";
   }
 
   function updateTimelineCursor(event) {
@@ -333,8 +338,8 @@
     cursor.setAttribute("visibility","visible");
   }
 
-  canvas.addEventListener("wheel", e => { e.preventDefault(); const rect=canvas.getBoundingClientRect(), labelW=Math.min(240,Math.max(120,rect.width*.25)), px=Math.max(0,Math.min(rect.width-labelW,e.clientX-rect.left-labelW)); const factor=e.deltaY>0?1.2:1/1.2; const maker=(a,b,x,y)=>state.scale==="log"?logScale(a,b,x,y,presentOrdinal):linearScale(a,b,x,y); state.domain=zoomDomain(state.domain,px,factor,rect.width-labelW,maker); if(cfg.source==="wiki") state.domain[1]=Math.min(state.domain[1],presentOrdinal); render(); },{passive:false});
-  canvas.addEventListener("pointerdown",e=>{state.dragging=true;state.dragX=e.clientX;state.dragDomain=state.domain.slice();canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener("wheel", e => { if(!e.ctrlKey)return; e.preventDefault(); const rect=canvas.getBoundingClientRect(), labelW=Math.min(240,Math.max(120,rect.width*.25)), px=Math.max(0,Math.min(rect.width-labelW,e.clientX-rect.left-labelW)); const factor=e.deltaY>0?1.2:1/1.2; const maker=(a,b,x,y)=>state.scale==="log"?logScale(a,b,x,y,presentOrdinal):linearScale(a,b,x,y); state.domain=zoomDomain(state.domain,px,factor,rect.width-labelW,maker); if(cfg.source==="wiki") state.domain[1]=Math.min(state.domain[1],presentOrdinal); render(); },{passive:false});
+  canvas.addEventListener("pointerdown",e=>{if(e.button!==0)return;state.dragging=true;state.dragX=e.clientX;state.dragDomain=state.domain.slice();canvas.setPointerCapture(e.pointerId);});
   canvas.addEventListener("pointermove",e=>{if(state.dragging){const rect=canvas.getBoundingClientRect(),w=rect.width-Math.min(240,Math.max(120,rect.width*.25)),maker=(a,b,x,y)=>state.scale==="log"?logScale(a,b,x,y,presentOrdinal):linearScale(a,b,x,y),s=maker(state.dragDomain[0],state.dragDomain[1],0,w),dx=e.clientX-state.dragX;state.domain=[s.invert(-dx),s.invert(w-dx)];if(cfg.source==="wiki"&&state.domain[1]>presentOrdinal){const d=state.domain[1]-presentOrdinal;state.domain=[state.domain[0]-d,presentOrdinal];}render();}updateTimelineCursor(e);});
   canvas.addEventListener("pointerleave",()=>{if(!state.dragging)canvas.querySelector(".nt-cursor")?.setAttribute("visibility","hidden");});
   canvas.addEventListener("pointerup",()=>state.dragging=false); canvas.addEventListener("pointercancel",()=>state.dragging=false);
