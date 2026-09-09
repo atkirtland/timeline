@@ -2,6 +2,8 @@ const assert = require("node:assert/strict");
 require("./view.js");
 const c = globalThis.TimelineCore;
 const day = s => Date.parse(s + "T00:00:00Z");
+assert.equal(c.timelineColor({"timeline-color":" #5b8cff "}), "#5b8cff");
+assert.equal(c.timelineColor({}), null);
 
 // Task date precedence and geometry.
 let t = c.normalizeTask({ path:"a.md", line:1, text:"Work 🛫 2026-01-01 ⏳ 2026-01-02 📅 2026-01-10 ➕ 2025-01-01" }, day("2026-01-05"), "A", 0);
@@ -30,16 +32,14 @@ for (let mask=0; mask<16; mask++) {
 assert.equal(c.normalizeTask({path:"a",line:7,text:"Made ➕ 2025-01-01"},day("2026-01-05"),"A",0).start,null);
 assert.equal(c.normalizeTask({path:"a",line:8,text:"Bad 🛫 2026-02-01 📅 2026-01-01"},day("2026-01-05"),"A",0).warning,"End precedes start");
 
-// Tasks active or nearest to today sort first, with status breaking equal distances.
-const sortToday=day("2026-01-10");
+// Status sorts first, then latest endpoint, earlier start, and alphabetic label.
 const sortable=[
-  {start:day("2026-01-08"),end:day("2026-01-08"),status:"open",path:"a",line:1},
-  {start:day("2026-01-12"),end:day("2026-01-12"),status:"completed",path:"a",line:2},
-  {start:day("2026-01-12"),end:day("2026-01-12"),status:"open",path:"a",line:3},
-  {start:day("2026-01-09"),end:day("2026-01-11"),status:"cancelled",path:"a",line:4}
-].sort((a,b)=>c.compareTasks(a,b,sortToday));
-assert.deepEqual(sortable.map(x=>x.line),[4,1,3,2]);
-assert.equal(c.taskTimeDistance(sortable[0],sortToday),0);
+  {label:"Old open",start:day("2026-01-08"),end:day("2026-01-08"),status:"open",path:"a",line:1},
+  {label:"New completed",start:day("2026-01-12"),end:day("2026-01-12"),status:"completed",path:"a",line:2},
+  {label:"New open",start:day("2026-01-12"),end:day("2026-01-12"),status:"open",path:"a",line:3},
+  {label:"Cancelled",start:day("2026-01-09"),end:day("2026-01-11"),status:"cancelled",path:"a",line:4}
+].sort(c.compareTasks);
+assert.deepEqual(sortable.map(x=>x.line),[3,1,2,4]);
 
 // Projects are ranked from their own displayed span, independently of child order.
 const groups=[
@@ -47,8 +47,8 @@ const groups=[
   {label:"Current",path:"current.md",start:day("2026-01-01"),end:day("2026-01-11"),children:[sortable[2]]},
   {label:"Empty",path:"empty.md",start:null,end:null,children:[sortable[0]]},
   {label:"Earlier",path:"earlier.md",start:day("2026-01-08"),end:day("2026-01-08"),children:[sortable[2]]}
-].sort((a,b)=>c.compareTasks(a,b,sortToday));
-assert.deepEqual(groups.map(x=>x.label),["Current","Earlier","Later","Empty"]);
+].sort(c.compareTasks);
+assert.deepEqual(groups.map(x=>x.label),["Later","Current","Earlier","Empty"]);
 
 // Wiki notes use their own aggregate historical span and the present-year coordinate.
 const present=c.ordinalFromCalendarYear(new Date().getUTCFullYear());
@@ -56,8 +56,14 @@ const notes=[
   {path:"ancient.md",start:c.ordinalFromCalendarYear(-500),end:c.ordinalFromCalendarYear(-400)},
   {path:"recent.md",start:c.ordinalFromCalendarYear(2000),end:c.ordinalFromCalendarYear(2010)},
   {path:"ongoing.md",start:c.ordinalFromCalendarYear(1900),end:present}
-].sort((a,b)=>c.compareTasks(a,b,present));
+].sort(c.compareTasks);
 assert.deepEqual(notes.map(x=>x.path),["ongoing.md","recent.md","ancient.md"]);
+const tied=[
+  {label:"Zulu",start:100,end:200,path:"z.md"},
+  {label:"Beta",start:90,end:200,path:"b.md"},
+  {label:"Alpha",start:90,end:200,path:"a.md"}
+].sort(c.compareTasks);
+assert.deepEqual(tied.map(x=>x.label),["Alpha","Beta","Zulu"]);
 
 // Historical syntax, hierarchy coordinates, and no year zero.
 for (const text of ["-2.58e6 – -11.7e3 Pleistocene", "-115e3..-11.7e3 Glacial", "1066 Battle"])

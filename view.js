@@ -24,6 +24,11 @@
 
   function iso(ms) { return ms == null ? null : new Date(ms).toISOString().slice(0, 10); }
 
+  function timelineColor(page) {
+    const value = page?.["timeline-color"];
+    return value == null ? null : String(value).trim() || null;
+  }
+
   function taskDates(task) {
     const found = {};
     const text = String(task.text || "");
@@ -73,22 +78,16 @@
     };
   }
 
-  function taskTimeDistance(task, todayMs) {
-    const start = task.start;
-    const end = task.end ?? start;
-    if (start == null) return Infinity;
-    if (start <= todayMs && end >= todayMs) return 0;
-    return start > todayMs ? start - todayMs : todayMs - end;
-  }
-
-  function compareTasks(a, b, todayMs) {
-    const distance = taskTimeDistance(a, todayMs) - taskTimeDistance(b, todayMs);
-    if (distance) return distance;
+  function compareTasks(a, b) {
     const statusRank = { open: 0, completed: 1, cancelled: 2 };
     const status = (statusRank[a.status] ?? 3) - (statusRank[b.status] ?? 3);
     if (status) return status;
-    const date = (a.start ?? Infinity) - (b.start ?? Infinity);
-    if (date) return date;
+    const aEnd = a.end ?? a.start ?? -Infinity, bEnd = b.end ?? b.start ?? -Infinity;
+    if (aEnd !== bEnd) return aEnd > bEnd ? -1 : 1;
+    const aStart = a.start ?? Infinity, bStart = b.start ?? Infinity;
+    if (aStart !== bStart) return aStart < bStart ? -1 : 1;
+    const label = String(a.label || a.displayLabel || "").localeCompare(String(b.label || b.displayLabel || ""), undefined, { sensitivity: "base" });
+    if (label) return label;
     const path = String(a.path || "").localeCompare(String(b.path || ""));
     return path || (Number(a.line) || 0) - (Number(b.line) || 0);
   }
@@ -155,14 +154,14 @@
     ];
   }
 
-  const Core = { dateMs, taskDates, taskStatus, normalizeTask, ordinalFromCalendarYear, calendarYearFromOrdinal,
+  const Core = { dateMs, timelineColor, taskDates, taskStatus, normalizeTask, ordinalFromCalendarYear, calendarYearFromOrdinal,
     formatYearOrdinal, parseWikiText, linearScale, logTransform, logInverse, logScale, zoomDomain,
-    taskTimeDistance, compareTasks };
+    compareTasks };
   if (typeof globalThis !== "undefined") globalThis.TimelineCore = Core;
   if (typeof dv === "undefined") return;
 
   const cfg = Object.assign({ source: "misc", pages: "", projectFolder: "misc/projects", scale: "linear",
-    initialBefore: "1 month", initialAfter: "1 month", initialYearsBack: 2000 }, input || {});
+    initialBefore: "1 month", initialAfter: "1 month", initialYearsBack: 2000, showUncategorized: false }, input || {});
   const sourcePath = dv.current()?.file?.path || "";
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
   const todayMs = today.getTime();
@@ -177,9 +176,10 @@
       const path = String(page.file?.path || "");
       const isProject = under(path, cfg.projectFolder);
       const name = isProject ? String(page.file?.name || path.split("/").pop()) : "Uncategorized";
-      if (!projects.has(name)) projects.set(name, { id: "project:" + name, kind: "project", label: name, path: isProject ? path : "", children: [], explicitStart: dateMs(page["timeline-start"]), explicitEnd: dateMs(page["timeline-end"]) });
+      if (!projects.has(name)) projects.set(name, { id: "project:" + name, kind: "project", label: name, path: isProject ? path : "", children: [], color: isProject ? timelineColor(page) : null, explicitStart: dateMs(page["timeline-start"]), explicitEnd: dateMs(page["timeline-end"]) });
       const project = projects.get(name);
       if (isProject) {
+        project.color = timelineColor(page) ?? project.color;
         project.explicitStart = dateMs(page["timeline-start"]) ?? project.explicitStart;
         project.explicitEnd = dateMs(page["timeline-end"]) ?? project.explicitEnd;
       }
@@ -196,9 +196,10 @@
       undated += p.children.length - dated.length;
       p.start = p.explicitStart ?? (dated.length ? Math.min(...dated.map(t => t.start)) : null);
       p.end = p.explicitEnd ?? (dated.length ? Math.max(...dated.map(t => t.end ?? t.start)) : null);
-      p.children = dated.sort((a, b) => compareTasks(a, b, todayMs));
+      for (const task of dated) task.color = p.color;
+      p.children = dated.sort(compareTasks);
     }
-    const roots = Array.from(projects.values()).sort((a, b) => compareTasks(a, b, todayMs));
+    const roots = Array.from(projects.values()).sort(compareTasks);
     return { roots, diagnostics: [], undated };
   }
 
@@ -233,23 +234,26 @@
       const dated = [];
       const collect = items => { for (const item of items) { dated.push(item); collect(item.children || []); } };
       collect(roots);
+      const color = timelineColor(page);
+      if (color) for (const item of dated) item.color = color;
       groups.push({
         id: "history-group:" + path, kind: "history-group",
-        label: String(page.file?.name || path.split("/").pop() || "Untitled"), path,
+        label: String(page.file?.name || path.split("/").pop() || "Untitled"), path, color,
         start: Math.min(...dated.map(item => item.start)),
         end: Math.max(...dated.map(item => item.end ?? item.start)),
         children: roots
       });
     }
-    const present = ordinalFromCalendarYear(PRESENT_YEAR);
-    groups.sort((a, b) => compareTasks(a, b, present));
+    groups.sort(compareTasks);
     return { roots: groups, diagnostics, undated: 0 };
   }
 
   const model = cfg.source === "wiki" ? wikiModel() : miscModel();
   const state = { expanded: new Set(), statuses: new Set(["open", "completed", "cancelled"]), project: "all",
+    showUncategorized: Boolean(cfg.showUncategorized),
     scale: cfg.source === "wiki" && cfg.scale !== "linear" ? "log" : "linear", dragging: false,
     findQuery: "", findIndex: -1, findId: null };
+  function rootIsShown(item) { return cfg.source === "wiki" || state.showUncategorized || item.id !== "project:Uncategorized"; }
   const presentOrdinal = ordinalFromCalendarYear(PRESENT_YEAR);
   function durationOffset(value, direction) {
     const m = String(value || "1 month").trim().match(/^(\d+(?:\.\d+)?)\s*(day|week|month|year)s?$/i);
@@ -270,17 +274,23 @@
   const canvas = root.createDiv({ cls: "nt-canvas" });
   const tooltip = root.createDiv({ cls: "nt-tooltip" });
   const statusLine = root.createDiv({ cls: "nt-status" });
+  let projectSelect = null;
+  let updateUncategorizedControl = () => {};
 
   function button(label, title, fn) { const b = toolbar.createEl("button", { text: label, attr: { title } }); b.addEventListener("click", fn); return b; }
   button("Present", "Return to the initial present-centered range", () => { state.domain = cfg.source === "wiki" ? [ordinalFromCalendarYear(PRESENT_YEAR - Number(cfg.initialYearsBack || 2000)), presentOrdinal] : [todayMs + durationOffset(cfg.initialBefore, -1), todayMs + durationOffset(cfg.initialAfter, 1)]; render(); });
-  button("Fit all", "Fit all dated items", () => { const values = []; walk(model.roots, x => { if (x.start != null) values.push(x.start, x.end ?? x.start); }); if (values.length) { let a = Math.min(...values), b = Math.max(...values); const pad = (b - a || (cfg.source === "wiki" ? 10 : 7 * DAY)) * .05; state.domain = [a - pad, Math.min(b + pad, cfg.source === "wiki" ? presentOrdinal : Infinity)]; render(); } });
+  button("Fit all", "Fit all dated items", () => { const values = []; for (const item of model.roots) if (rootIsShown(item)) walk([item], x => { if (x.start != null) values.push(x.start, x.end ?? x.start); }); if (values.length) { let a = Math.min(...values), b = Math.max(...values); const pad = (b - a || (cfg.source === "wiki" ? 10 : 7 * DAY)) * .05; state.domain = [a - pad, Math.min(b + pad, cfg.source === "wiki" ? presentOrdinal : Infinity)]; render(); } });
   if (cfg.source === "wiki") button(state.scale === "log" ? "Log" : "Linear", "Toggle axis scale", e => { state.scale = state.scale === "log" ? "linear" : "log"; e.currentTarget.textContent = state.scale === "log" ? "Log" : "Linear"; render(); });
   {
     const isWiki = cfg.source === "wiki";
-    const select = toolbar.createEl("select", { attr: { "aria-label": isWiki ? "Note filter" : "Project filter" } });
+    const select = projectSelect = toolbar.createEl("select", { attr: { "aria-label": isWiki ? "Note filter" : "Project filter" } });
     select.createEl("option", { text: isWiki ? "All notes" : "All projects", attr: { value: "all" } });
     for (const p of model.roots) select.createEl("option", { text: p.label, attr: { value: p.label } });
-    select.addEventListener("change", () => { state.project = select.value; render(); });
+    select.addEventListener("change", () => {
+      state.project = select.value;
+      if (!isWiki && select.value === "Uncategorized") { state.showUncategorized = true; updateUncategorizedControl(); }
+      render();
+    });
     if (!isWiki) {
       for (const status of ["open", "completed", "cancelled"]) {
         const label = toolbar.createEl("label", { cls: "nt-check" }); const check = label.createEl("input", { attr: { type: "checkbox" } }); check.checked = true;
@@ -295,6 +305,21 @@
   }
 
   const finder = toolbar.createDiv({ cls: "nt-finder" });
+  if (cfg.source !== "wiki") {
+    const label = finder.createEl("label", { cls: "nt-check", attr: { title: "Show tasks outside the projects folder" } });
+    const check = label.createEl("input", { attr: { type: "checkbox" } });
+    label.appendText("uncategorized");
+    updateUncategorizedControl = () => { check.checked = state.showUncategorized; };
+    check.addEventListener("change", () => {
+      state.showUncategorized = check.checked;
+      if (!state.showUncategorized && state.project === "Uncategorized") {
+        state.project = "all";
+        if (projectSelect) projectSelect.value = "all";
+      }
+      render();
+    });
+    updateUncategorizedControl();
+  }
   const findInput = finder.createEl("input", { attr: { type: "search", placeholder: "Find…", "aria-label": "Find timeline item" } });
   const findCount = finder.createEl("span", { cls: "nt-find-count", text: "" });
 
@@ -309,7 +334,8 @@
         visit(item.children||[],ancestors.concat(item));
       }
     }
-    visit(model.roots,[]); return found;
+    for (const item of model.roots) if (rootIsShown(item)) visit([item],[]);
+    return found;
   }
   function updateFindCount() {
     const matches=findEntries(findInput.value);
@@ -361,6 +387,7 @@
       if (state.expanded.has(item.id)) for (const child of item.children || []) add(child, depth + 1);
     }
     for (const rootItem of model.roots) {
+      if (!rootIsShown(rootItem)) continue;
       if (state.project !== "all" && rootItem.label !== state.project) continue;
       add(rootItem, 0);
     }
@@ -426,6 +453,10 @@
     for (let i=0;i<=6;i++) { const x = plotW*i/6, value=scale.invert(x); svgEl("line", { x1:labelW+x,x2:labelW+x,y1:axisH-10,y2:height,class:"nt-grid" },svg); const t=svgEl("text",{x:labelW+x,y:14,class:"nt-tick","text-anchor":i===0?"start":i===6?"end":"middle"},svg); t.textContent=formatCoord(value); }
     rows.forEach(({ item, depth }, idx) => {
       const y=axisH+idx*rowH, g=svgEl("g",{class:"nt-row nt-"+item.kind+(item.status?" nt-"+item.status:"")+(state.findId===item.id?" is-find-current":""),"data-item-id":item.id},svg);
+      if(item.color) {
+        g.style.setProperty("--nt-color",item.color);
+        g.style.setProperty("--nt-item-color",item.kind === "task" || item.kind === "event" ? `color-mix(in srgb, ${item.color} 40%, white)` : item.color);
+      }
       svgEl("rect",{x:0,y,width,height:rowH,class:"nt-row-bg"},g);
       const hasChildren=(item.children||[]).length>0;
       const toggle=()=>{if(hasChildren){state.expanded.has(item.id)?state.expanded.delete(item.id):state.expanded.add(item.id);render();}else navigate(item);};
@@ -459,6 +490,7 @@
           if((child.kind==="task"&&!state.statuses.has(child.status))||!overlaps(child)) continue;
           const tx=Math.max(labelW,Math.min(width,plotX(child.start)));
           const compact=svgEl("circle",{cx:tx,cy:y+rowH/2,r:2.5,class:"nt-compact"+(child.status?" nt-"+child.status:"")},g);
+          if(child.color)compact.style.setProperty("--nt-item-color",`color-mix(in srgb, ${child.color} 40%, white)`);
           bindGeometryTip(compact,child,child.start,child.point?null:child.end);
         }
       }

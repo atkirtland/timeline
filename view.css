@@ -6,7 +6,7 @@
 .native-timeline .nt-diagnostics { margin-left: auto; position: relative; }
 .native-timeline .nt-diagnostics > div { white-space: pre-wrap; position: absolute; right: 0; z-index: 5; width: min(420px, 80vw); max-height: 220px; overflow: auto; padding: 8px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); box-shadow: var(--shadow-s); }
 .native-timeline .nt-finder { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
-.native-timeline .nt-finder input { width: 150px; min-width: 80px; font: inherit; }
+.native-timeline .nt-finder input[type="search"] { width: 150px; min-width: 80px; font: inherit; }
 .native-timeline .nt-find-count { min-width: 30px; color: var(--text-muted); font-size: 11px; }
 .native-timeline .nt-canvas { min-height: 100px; overflow-y: auto; touch-action: none; cursor: crosshair !important; }
 .native-timeline .nt-canvas svg { cursor: crosshair !important; }
@@ -23,13 +23,13 @@
 .native-timeline .nt-label { fill: var(--text-normal); font-size: 12px; cursor: pointer !important; }
 .native-timeline .nt-task-checkbox { fill: var(--text-muted); font-size: 15px; pointer-events: none; }
 .native-timeline .nt-cancelled .nt-task-checkbox { fill: var(--text-error); }
-.native-timeline .nt-band { fill: var(--interactive-accent); opacity: .72; pointer-events: all; }
+.native-timeline .nt-band { fill: var(--nt-item-color, var(--interactive-accent)); opacity: .72; pointer-events: all; }
 .native-timeline .nt-project .nt-band, .native-timeline .nt-history-group .nt-band, .native-timeline .nt-event:has(.nt-band) .nt-band { opacity: .48; }
-.native-timeline .nt-mark { fill: var(--interactive-accent); stroke: var(--background-primary); stroke-width: 1.5; pointer-events: all; }
-.native-timeline .nt-compact { fill: var(--text-on-accent); stroke: var(--interactive-accent); stroke-width: 1; pointer-events: all; }
+.native-timeline .nt-mark { fill: var(--nt-item-color, var(--interactive-accent)); stroke: var(--background-primary); stroke-width: 1.5; pointer-events: all; }
+.native-timeline .nt-compact { fill: var(--nt-item-color, var(--text-on-accent)); stroke: var(--nt-item-color, var(--interactive-accent)); stroke-width: 1; pointer-events: all; }
 .native-timeline .nt-completed, .native-timeline .nt-cancelled { opacity: .48; }
-.native-timeline .nt-cancelled .nt-band, .native-timeline .nt-cancelled .nt-mark { fill: var(--text-error); }
-.native-timeline .nt-scheduled { stroke: var(--text-accent); stroke-width: 3; pointer-events: stroke; }
+.native-timeline .nt-cancelled .nt-band, .native-timeline .nt-cancelled .nt-mark { fill: var(--nt-item-color, var(--text-error)); }
+.native-timeline .nt-scheduled { stroke: var(--nt-item-color, var(--text-accent)); stroke-width: 3; pointer-events: stroke; }
 .native-timeline .nt-cont { fill: none; stroke: var(--text-on-accent); stroke-width: 2; }
 .native-timeline .nt-cursor { pointer-events: none; }
 .native-timeline .nt-cursor-line { stroke: var(--text-accent); stroke-width: 1; stroke-dasharray: 3 3; }
