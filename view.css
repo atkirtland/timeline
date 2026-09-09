@@ -5,8 +5,9 @@
 .native-timeline .nt-check { display: inline-flex; align-items: center; gap: 3px; text-transform: capitalize; }
 .native-timeline .nt-diagnostics { margin-left: auto; position: relative; }
 .native-timeline .nt-diagnostics > div { white-space: pre-wrap; position: absolute; right: 0; z-index: 5; width: min(420px, 80vw); max-height: 220px; overflow: auto; padding: 8px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); box-shadow: var(--shadow-s); }
-.native-timeline .nt-canvas { min-height: 100px; overflow-y: auto; touch-action: none; cursor: grab; }
-.native-timeline .nt-canvas:active { cursor: grabbing; }
+.native-timeline .nt-canvas { min-height: 100px; overflow-y: auto; touch-action: none; cursor: crosshair !important; }
+.native-timeline .nt-canvas svg { cursor: crosshair !important; }
+.native-timeline .nt-canvas:active, .native-timeline .nt-canvas:active svg { cursor: move !important; }
 .native-timeline svg { display: block; user-select: none; }
 .native-timeline .nt-hit-area { fill: transparent; pointer-events: all; }
 .native-timeline .nt-axis { stroke: var(--text-muted); }
@@ -14,7 +15,7 @@
 .native-timeline .nt-tick { fill: var(--text-muted); font-size: 10px; }
 .native-timeline .nt-row-bg { fill: transparent; }
 .native-timeline .nt-row:hover .nt-row-bg { fill: var(--background-modifier-hover); }
-.native-timeline .nt-label { fill: var(--text-normal); font-size: 12px; cursor: pointer; }
+.native-timeline .nt-label { fill: var(--text-normal); font-size: 12px; cursor: pointer !important; }
 .native-timeline .nt-band { fill: var(--interactive-accent); opacity: .72; }
 .native-timeline .nt-project .nt-band, .native-timeline .nt-event:has(.nt-band) .nt-band { opacity: .48; }
 .native-timeline .nt-mark { fill: var(--interactive-accent); stroke: var(--background-primary); stroke-width: 1.5; }
