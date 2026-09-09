@@ -44,6 +44,11 @@ assert.equal(c.taskTimeDistance(sortable[0],sortToday),0);
 // Historical syntax, hierarchy coordinates, and no year zero.
 for (const text of ["-2.58e6 – -11.7e3 Pleistocene", "-115e3..-11.7e3 Glacial", "1066 Battle"])
   assert.ok(c.parseWikiText(text), text);
+for (const text of ["1945 – Ongoing era", "1945.. Ongoing era", "1945 - Ongoing era"]) {
+  const ongoing=c.parseWikiText(text);
+  assert.equal(ongoing.ongoing,true,text); assert.equal(ongoing.point,false,text);
+  assert.equal(c.calendarYearFromOrdinal(ongoing.end),new Date().getUTCFullYear(),text);
+}
 assert.equal(c.parseWikiText("0 Impossible").error.includes("zero"), true);
 assert.equal(c.ordinalFromCalendarYear(-1), -1); assert.equal(c.ordinalFromCalendarYear(1), 0);
 assert.equal(c.calendarYearFromOrdinal(0), 1);

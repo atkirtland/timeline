@@ -8,6 +8,7 @@
   const DATE_RE = /(?:^|\s)(🛫|⏳|📅|✅|➕)\s*(\d{4}-\d{2}-\d{2})(?=\s|$)/gu;
   const YEAR_NUMBER = "[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e[+-]?\\d+)?";
   const WIKI_RANGE_RE = new RegExp("^\\s*(" + YEAR_NUMBER + ")\\s*(?:–|\\.\\.)\\s*(" + YEAR_NUMBER + ")\\s+(.+?)\\s*$", "i");
+  const WIKI_OPEN_RANGE_RE = new RegExp("^\\s*(" + YEAR_NUMBER + ")\\s*(?:–|\\.\\.|-)\\s+(.+?)\\s*$", "i");
   const WIKI_POINT_RE = new RegExp("^\\s*(" + YEAR_NUMBER + ")\\s+(.+?)\\s*$", "i");
 
   function dateMs(value) {
@@ -110,15 +111,16 @@
 
   function parseWikiText(text) {
     const raw = String(text || "").replace(/^[-*+]\s+/, "");
-    let m = raw.match(WIKI_RANGE_RE), ranged = true;
+    let m = raw.match(WIKI_RANGE_RE), ranged = true, ongoing = false;
+    if (!m) { m = raw.match(WIKI_OPEN_RANGE_RE); ongoing = Boolean(m); }
     if (!m) { m = raw.match(WIKI_POINT_RE); ranged = false; }
     if (!m) return null;
-    const a = Number(m[1]), b = ranged ? Number(m[2]) : a;
+    const a = Number(m[1]), b = ongoing ? PRESENT_YEAR : ranged ? Number(m[2]) : a;
     const start = ordinalFromCalendarYear(a), end = ordinalFromCalendarYear(b);
     if (start == null || end == null) return { error: "Year zero or an invalid year", text: raw };
-    const label = m[ranged ? 3 : 2];
+    const label = m[ongoing ? 2 : ranged ? 3 : 2];
     if (start > end) return { label, start, end: start, point: true, warning: "Inverted interval", rawStart: a, rawEnd: b };
-    return { label, start, end, point: !ranged, warning: null, rawStart: a, rawEnd: b };
+    return { label, start, end, point: !ranged, ongoing, warning: null, rawStart: a, rawEnd: b };
   }
 
   function firstWikiTarget(text) {
