@@ -198,7 +198,8 @@
       p.end = p.explicitEnd ?? (dated.length ? Math.max(...dated.map(t => t.end ?? t.start)) : null);
       p.children = dated.sort((a, b) => compareTasks(a, b, todayMs));
     }
-    return { roots: Array.from(projects.values()), diagnostics: [], undated };
+    const roots = Array.from(projects.values()).sort((a, b) => compareTasks(a, b, todayMs));
+    return { roots, diagnostics: [], undated };
   }
 
   function wikiModel() {
@@ -240,7 +241,8 @@
         children: roots
       });
     }
-    groups.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
+    const present = ordinalFromCalendarYear(PRESENT_YEAR);
+    groups.sort((a, b) => compareTasks(a, b, present));
     return { roots: groups, diagnostics, undated: 0 };
   }
 

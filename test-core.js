@@ -41,6 +41,24 @@ const sortable=[
 assert.deepEqual(sortable.map(x=>x.line),[4,1,3,2]);
 assert.equal(c.taskTimeDistance(sortable[0],sortToday),0);
 
+// Projects are ranked from their own displayed span, independently of child order.
+const groups=[
+  {label:"Later",path:"later.md",start:day("2026-01-12"),end:day("2026-01-14"),children:[sortable[0]]},
+  {label:"Current",path:"current.md",start:day("2026-01-01"),end:day("2026-01-11"),children:[sortable[2]]},
+  {label:"Empty",path:"empty.md",start:null,end:null,children:[sortable[0]]},
+  {label:"Earlier",path:"earlier.md",start:day("2026-01-08"),end:day("2026-01-08"),children:[sortable[2]]}
+].sort((a,b)=>c.compareTasks(a,b,sortToday));
+assert.deepEqual(groups.map(x=>x.label),["Current","Earlier","Later","Empty"]);
+
+// Wiki notes use their own aggregate historical span and the present-year coordinate.
+const present=c.ordinalFromCalendarYear(new Date().getUTCFullYear());
+const notes=[
+  {path:"ancient.md",start:c.ordinalFromCalendarYear(-500),end:c.ordinalFromCalendarYear(-400)},
+  {path:"recent.md",start:c.ordinalFromCalendarYear(2000),end:c.ordinalFromCalendarYear(2010)},
+  {path:"ongoing.md",start:c.ordinalFromCalendarYear(1900),end:present}
+].sort((a,b)=>c.compareTasks(a,b,present));
+assert.deepEqual(notes.map(x=>x.path),["ongoing.md","recent.md","ancient.md"]);
+
 // Historical syntax, hierarchy coordinates, and no year zero.
 for (const text of ["-2.58e6 – -11.7e3 Pleistocene", "-115e3..-11.7e3 Glacial", "1066 Battle"])
   assert.ok(c.parseWikiText(text), text);
