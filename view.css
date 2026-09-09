@@ -5,6 +5,9 @@
 .native-timeline .nt-check { display: inline-flex; align-items: center; gap: 3px; text-transform: capitalize; }
 .native-timeline .nt-diagnostics { margin-left: auto; position: relative; }
 .native-timeline .nt-diagnostics > div { white-space: pre-wrap; position: absolute; right: 0; z-index: 5; width: min(420px, 80vw); max-height: 220px; overflow: auto; padding: 8px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); box-shadow: var(--shadow-s); }
+.native-timeline .nt-finder { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.native-timeline .nt-finder input { width: 150px; min-width: 80px; font: inherit; }
+.native-timeline .nt-find-count { min-width: 30px; color: var(--text-muted); font-size: 11px; }
 .native-timeline .nt-canvas { min-height: 100px; overflow-y: auto; touch-action: none; cursor: crosshair !important; }
 .native-timeline .nt-canvas svg { cursor: crosshair !important; }
 .native-timeline .nt-canvas:active, .native-timeline .nt-canvas:active svg { cursor: move !important; }
@@ -15,6 +18,7 @@
 .native-timeline .nt-tick { fill: var(--text-muted); font-size: 10px; }
 .native-timeline .nt-row-bg { fill: transparent; }
 .native-timeline .nt-row:hover .nt-row-bg { fill: var(--background-modifier-hover); }
+.native-timeline .nt-row.is-find-current .nt-row-bg { fill: var(--background-modifier-success); }
 .native-timeline .nt-label-hit { fill: transparent; cursor: pointer !important; }
 .native-timeline .nt-label { fill: var(--text-normal); font-size: 12px; cursor: pointer !important; }
 .native-timeline .nt-task-checkbox { fill: var(--text-muted); font-size: 15px; pointer-events: none; }

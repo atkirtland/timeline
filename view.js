@@ -246,7 +246,8 @@
 
   const model = cfg.source === "wiki" ? wikiModel() : miscModel();
   const state = { expanded: new Set(), statuses: new Set(["open", "completed", "cancelled"]), project: "all",
-    scale: cfg.source === "wiki" && cfg.scale !== "linear" ? "log" : "linear", dragging: false };
+    scale: cfg.source === "wiki" && cfg.scale !== "linear" ? "log" : "linear", dragging: false,
+    findQuery: "", findIndex: -1, findId: null };
   const presentOrdinal = ordinalFromCalendarYear(PRESENT_YEAR);
   function durationOffset(value, direction) {
     const m = String(value || "1 month").trim().match(/^(\d+(?:\.\d+)?)\s*(day|week|month|year)s?$/i);
@@ -262,7 +263,7 @@
   state.domain = cfg.source === "wiki" ? [ordinalFromCalendarYear(PRESENT_YEAR - Number(cfg.initialYearsBack || 2000)), presentOrdinal]
     : [todayMs + durationOffset(cfg.initialBefore, -1), todayMs + durationOffset(cfg.initialAfter, 1)];
 
-  const root = dv.el("div", "", { cls: "native-timeline" });
+  const root = dv.el("div", "", { cls: "native-timeline", attr: { tabindex: "0" } });
   const toolbar = root.createDiv({ cls: "nt-toolbar" });
   const canvas = root.createDiv({ cls: "nt-canvas" });
   const tooltip = root.createDiv({ cls: "nt-tooltip" });
@@ -291,7 +292,63 @@
     details.createEl("div", { text: model.diagnostics.join("\n") });
   }
 
+  const finder = toolbar.createDiv({ cls: "nt-finder" });
+  const findInput = finder.createEl("input", { attr: { type: "search", placeholder: "Find…", "aria-label": "Find timeline item" } });
+  const findCount = finder.createEl("span", { cls: "nt-find-count", text: "" });
+
   function walk(items, fn) { for (const item of items) { fn(item); walk(item.children || [], fn); } }
+  function findEntries(query) {
+    const needle=String(query||"").trim().toLocaleLowerCase(), found=[];
+    if(!needle)return found;
+    function visit(items,ancestors) {
+      for(const item of items) {
+        const haystack=[item.displayLabel,item.label,item.originalText,item.path].filter(Boolean).join(" ").toLocaleLowerCase();
+        if(haystack.includes(needle))found.push({item,ancestors});
+        visit(item.children||[],ancestors.concat(item));
+      }
+    }
+    visit(model.roots,[]); return found;
+  }
+  function updateFindCount() {
+    const matches=findEntries(findInput.value);
+    findCount.textContent=matches.length?(state.findIndex>=0?`${state.findIndex+1}/${matches.length}`:`${matches.length}`):findInput.value.trim()?"0":"";
+  }
+  function revealFind(direction=1) {
+    const query=findInput.value.trim(), matches=findEntries(query);
+    if(!matches.length){state.findIndex=-1;state.findId=null;updateFindCount();return;}
+    if(query!==state.findQuery)state.findIndex=direction<0?0:-1;
+    state.findQuery=query;
+    state.findIndex=(state.findIndex+direction+matches.length)%matches.length;
+    const match=matches[state.findIndex]; state.findId=match.item.id;
+    for(const ancestor of match.ancestors)state.expanded.add(ancestor.id);
+    if(!overlaps(match.item)) {
+      const itemStart=match.item.start, itemEnd=match.item.end??itemStart;
+      const span=Math.max(state.domain[1]-state.domain[0],itemEnd-itemStart||1);
+      const center=(itemStart+itemEnd)/2;
+      state.domain=[center-span/2,center+span/2];
+      if(cfg.source==="wiki"&&state.domain[1]>presentOrdinal) {
+        const excess=state.domain[1]-presentOrdinal;
+        state.domain=[state.domain[0]-excess,presentOrdinal];
+      }
+    }
+    render(); updateFindCount();
+    requestAnimationFrame(()=>{
+      const row=Array.from(canvas.querySelectorAll(".nt-row")).find(el=>el.dataset.itemId===match.item.id);
+      row?.scrollIntoView({behavior:"smooth",block:"center",inline:"nearest"});
+    });
+  }
+  findInput.addEventListener("input",()=>{state.findQuery=findInput.value.trim();state.findIndex=-1;state.findId=null;updateFindCount();render();});
+  findInput.addEventListener("keydown",event=>{
+    if(event.key==="Enter"){event.preventDefault();event.stopPropagation();revealFind(event.shiftKey?-1:1);}
+    if(event.key==="Escape"){findInput.value="";state.findQuery="";state.findIndex=-1;state.findId=null;updateFindCount();render();root.focus();}
+  });
+  root.addEventListener("pointerdown",event=>{if(!event.target.closest("input,button,select,summary"))root.focus({preventScroll:true});});
+  root.addEventListener("keydown",event=>{
+    if((event.ctrlKey||event.metaKey)&&event.key.toLocaleLowerCase()==="f"){
+      event.preventDefault();event.stopPropagation();findInput.focus();findInput.select();
+    }
+  });
+
   function overlaps(item) { return item.start != null && item.start <= state.domain[1] && (item.end ?? item.start) >= state.domain[0]; }
   function visibleRows() {
     const rows = [];
@@ -366,7 +423,7 @@
     svgEl("line", { x1: labelW, x2: width, y1: axisH-6, y2: axisH-6, class: "nt-axis" }, svg);
     for (let i=0;i<=6;i++) { const x = plotW*i/6, value=scale.invert(x); svgEl("line", { x1:labelW+x,x2:labelW+x,y1:axisH-10,y2:height,class:"nt-grid" },svg); const t=svgEl("text",{x:labelW+x,y:14,class:"nt-tick","text-anchor":i===0?"start":i===6?"end":"middle"},svg); t.textContent=formatCoord(value); }
     rows.forEach(({ item, depth }, idx) => {
-      const y=axisH+idx*rowH, g=svgEl("g",{class:"nt-row nt-"+item.kind+(item.status?" nt-"+item.status:"")},svg);
+      const y=axisH+idx*rowH, g=svgEl("g",{class:"nt-row nt-"+item.kind+(item.status?" nt-"+item.status:"")+(state.findId===item.id?" is-find-current":""),"data-item-id":item.id},svg);
       svgEl("rect",{x:0,y,width,height:rowH,class:"nt-row-bg"},g);
       const hasChildren=(item.children||[]).length>0;
       const toggle=()=>{if(hasChildren){state.expanded.has(item.id)?state.expanded.delete(item.id):state.expanded.add(item.id);render();}else navigate(item);};
