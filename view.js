@@ -72,6 +72,26 @@
     };
   }
 
+  function taskTimeDistance(task, todayMs) {
+    const start = task.start;
+    const end = task.end ?? start;
+    if (start == null) return Infinity;
+    if (start <= todayMs && end >= todayMs) return 0;
+    return start > todayMs ? start - todayMs : todayMs - end;
+  }
+
+  function compareTasks(a, b, todayMs) {
+    const distance = taskTimeDistance(a, todayMs) - taskTimeDistance(b, todayMs);
+    if (distance) return distance;
+    const statusRank = { open: 0, completed: 1, cancelled: 2 };
+    const status = (statusRank[a.status] ?? 3) - (statusRank[b.status] ?? 3);
+    if (status) return status;
+    const date = (a.start ?? Infinity) - (b.start ?? Infinity);
+    if (date) return date;
+    const path = String(a.path || "").localeCompare(String(b.path || ""));
+    return path || (Number(a.line) || 0) - (Number(b.line) || 0);
+  }
+
   function ordinalFromCalendarYear(year) {
     if (!Number.isFinite(year) || year === 0) return null;
     return year > 0 ? year - 1 : year;
@@ -84,7 +104,7 @@
     if (abs >= 1e9) n = (abs / 1e9).toPrecision(3).replace(/\.0+$/, "") + "B";
     else if (abs >= 1e6) n = (abs / 1e6).toPrecision(3).replace(/\.0+$/, "") + "M";
     else if (abs >= 1e4) n = (abs / 1e3).toPrecision(3).replace(/\.0+$/, "") + "k";
-    else n = Number(abs.toPrecision(6)).toLocaleString();
+    else n = String(Number(abs.toPrecision(6)));
     return n + (y < 0 ? " BCE" : " CE");
   }
 
@@ -134,7 +154,8 @@
   }
 
   const Core = { dateMs, taskDates, taskStatus, normalizeTask, ordinalFromCalendarYear, calendarYearFromOrdinal,
-    formatYearOrdinal, parseWikiText, linearScale, logTransform, logInverse, logScale, zoomDomain };
+    formatYearOrdinal, parseWikiText, linearScale, logTransform, logInverse, logScale, zoomDomain,
+    taskTimeDistance, compareTasks };
   if (typeof globalThis !== "undefined") globalThis.TimelineCore = Core;
   if (typeof dv === "undefined") return;
 
@@ -173,15 +194,16 @@
       undated += p.children.length - dated.length;
       p.start = p.explicitStart ?? (dated.length ? Math.min(...dated.map(t => t.start)) : null);
       p.end = p.explicitEnd ?? (dated.length ? Math.max(...dated.map(t => t.end ?? t.start)) : null);
-      p.children = dated;
+      p.children = dated.sort((a, b) => compareTasks(a, b, todayMs));
     }
     return { roots: Array.from(projects.values()), diagnostics: [], undated };
   }
 
   function wikiModel() {
-    const roots = [], diagnostics = [], all = new Map();
+    const groups = [], diagnostics = [];
     for (const page of pageArray(cfg.pages)) {
       const path = String(page.file?.path || "");
+      const roots = [], all = new Map();
       for (const [i, li] of Array.from(page.file?.lists || []).entries()) {
         if (li.task) continue;
         const parsed = parseWikiText(li.text);
@@ -199,8 +221,25 @@
         const parent = parentLine == null ? null : all.get(path + ":" + parentLine);
         if (parent) parent.children.push(item); else roots.push(item);
       }
+      if (!roots.length) continue;
+      const sortEvents = items => {
+        items.sort((a, b) => a.start - b.start || (a.end ?? a.start) - (b.end ?? b.start) || a.line - b.line);
+        for (const item of items) sortEvents(item.children || []);
+      };
+      sortEvents(roots);
+      const dated = [];
+      const collect = items => { for (const item of items) { dated.push(item); collect(item.children || []); } };
+      collect(roots);
+      groups.push({
+        id: "history-group:" + path, kind: "history-group",
+        label: String(page.file?.name || path.split("/").pop() || "Untitled"), path,
+        start: Math.min(...dated.map(item => item.start)),
+        end: Math.max(...dated.map(item => item.end ?? item.start)),
+        children: roots
+      });
     }
-    return { roots, diagnostics, undated: 0 };
+    groups.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
+    return { roots: groups, diagnostics, undated: 0 };
   }
 
   const model = cfg.source === "wiki" ? wikiModel() : miscModel();
@@ -231,14 +270,17 @@
   button("Present", "Return to the initial present-centered range", () => { state.domain = cfg.source === "wiki" ? [ordinalFromCalendarYear(PRESENT_YEAR - Number(cfg.initialYearsBack || 2000)), presentOrdinal] : [todayMs + durationOffset(cfg.initialBefore, -1), todayMs + durationOffset(cfg.initialAfter, 1)]; render(); });
   button("Fit all", "Fit all dated items", () => { const values = []; walk(model.roots, x => { if (x.start != null) values.push(x.start, x.end ?? x.start); }); if (values.length) { let a = Math.min(...values), b = Math.max(...values); const pad = (b - a || (cfg.source === "wiki" ? 10 : 7 * DAY)) * .05; state.domain = [a - pad, Math.min(b + pad, cfg.source === "wiki" ? presentOrdinal : Infinity)]; render(); } });
   if (cfg.source === "wiki") button(state.scale === "log" ? "Log" : "Linear", "Toggle axis scale", e => { state.scale = state.scale === "log" ? "linear" : "log"; e.currentTarget.textContent = state.scale === "log" ? "Log" : "Linear"; render(); });
-  if (cfg.source === "misc") {
-    const select = toolbar.createEl("select", { attr: { "aria-label": "Project filter" } });
-    select.createEl("option", { text: "All projects", attr: { value: "all" } });
+  {
+    const isWiki = cfg.source === "wiki";
+    const select = toolbar.createEl("select", { attr: { "aria-label": isWiki ? "Note filter" : "Project filter" } });
+    select.createEl("option", { text: isWiki ? "All notes" : "All projects", attr: { value: "all" } });
     for (const p of model.roots) select.createEl("option", { text: p.label, attr: { value: p.label } });
     select.addEventListener("change", () => { state.project = select.value; render(); });
-    for (const status of ["open", "completed", "cancelled"]) {
-      const label = toolbar.createEl("label", { cls: "nt-check" }); const check = label.createEl("input", { attr: { type: "checkbox" } }); check.checked = true;
-      label.appendText(status); check.addEventListener("change", () => { check.checked ? state.statuses.add(status) : state.statuses.delete(status); render(); });
+    if (!isWiki) {
+      for (const status of ["open", "completed", "cancelled"]) {
+        const label = toolbar.createEl("label", { cls: "nt-check" }); const check = label.createEl("input", { attr: { type: "checkbox" } }); check.checked = true;
+        label.appendText(status); check.addEventListener("change", () => { check.checked ? state.statuses.add(status) : state.statuses.delete(status); render(); });
+      }
     }
   }
   if (model.diagnostics.length) {
@@ -278,6 +320,16 @@
     tooltip.replaceChildren();
     tooltip.createEl("span", { text: item.originalText || item.label || "(untitled)" });
     tooltip.classList.add("is-visible"); positionTip(event);
+  }
+  function showGeometryTip(item, event, start=item.start, end=item.point ? null : item.end) {
+    event.stopPropagation();
+    tooltip.replaceChildren();
+    tooltip.createEl("span", { text: formatCoord(start) + (end == null ? "" : " – " + formatCoord(end)) });
+    tooltip.classList.add("is-visible"); positionTip(event);
+  }
+  function bindGeometryTip(el, item, start=item.start, end=item.point ? null : item.end) {
+    el.addEventListener("mousemove", event => showGeometryTip(item, event, start, end));
+    el.addEventListener("mouseleave", () => tooltip.classList.remove("is-visible"));
   }
   function showTip(item, event) {
     const ds = item.dates || {};
@@ -325,15 +377,30 @@
       label.addEventListener("pointerdown",e=>e.stopPropagation()); label.addEventListener("click",toggle);
       if(item.kind==="task") { label.addEventListener("mousemove",e=>showOriginalTaskTip(item,e)); label.addEventListener("mouseleave",()=>tooltip.classList.remove("is-visible")); }
       const rawA=plotX(item.start), rawB=plotX(item.end??item.start), a=Math.max(labelW,rawA), b=Math.min(width,rawB), clippedL=rawA<labelW, clippedR=rawB>width;
-      if(item.point || Math.abs(b-a)<3) svgEl("circle",{cx:Math.max(labelW,Math.min(width,rawA)),cy:y+rowH/2,r:item.kind==="project"?5:4,class:"nt-mark"},g);
-      else if(b>=labelW&&a<=width) { svgEl("rect",{x:a,y:y+8,width:Math.max(3,b-a),height:item.kind==="project"?14:10,rx:4,class:"nt-band"},g); if(clippedL) svgEl("path",{d:`M${labelW+6},${y+8} L${labelW},${y+15} L${labelW+6},${y+22}`,class:"nt-cont"},g); if(clippedR) svgEl("path",{d:`M${width-6},${y+8} L${width},${y+15} L${width-6},${y+22}`,class:"nt-cont"},g); }
-      if(item.marker!=null&&item.marker>=state.domain[0]&&item.marker<=state.domain[1]) svgEl("path",{d:`M${plotX(item.marker)},${y+5} v20`,class:"nt-scheduled"},g);
-      if(item.kind==="project"&&!state.expanded.has(item.id)) for(const task of item.children||[]) {
-        if(!state.statuses.has(task.status)||!overlaps(task)) continue;
-        const tx=Math.max(labelW,Math.min(width,plotX(task.start)));
-        svgEl("circle",{cx:tx,cy:y+rowH/2,r:2.5,class:"nt-compact nt-"+task.status},g);
+      const isGroup=item.kind==="project"||item.kind==="history-group";
+      if(item.point || Math.abs(b-a)<3) {
+        const mark=svgEl("circle",{cx:Math.max(labelW,Math.min(width,rawA)),cy:y+rowH/2,r:isGroup?5:4,class:"nt-mark"},g);
+        bindGeometryTip(mark,item,item.start,null);
+      } else if(b>=labelW&&a<=width) {
+        const band=svgEl("rect",{x:a,y:y+8,width:Math.max(3,b-a),height:isGroup?14:10,rx:4,class:"nt-band"},g);
+        bindGeometryTip(band,item);
+        if(clippedL) svgEl("path",{d:`M${labelW+6},${y+8} L${labelW},${y+15} L${labelW+6},${y+22}`,class:"nt-cont"},g);
+        if(clippedR) svgEl("path",{d:`M${width-6},${y+8} L${width},${y+15} L${width-6},${y+22}`,class:"nt-cont"},g);
       }
-      if(item.kind==="event") g.addEventListener("mousemove",e=>showTip(item,e));
+      if(item.marker!=null&&item.marker>=state.domain[0]&&item.marker<=state.domain[1]) {
+        const marker=svgEl("path",{d:`M${plotX(item.marker)},${y+5} v20`,class:"nt-scheduled"},g);
+        bindGeometryTip(marker,item,item.marker,null);
+      }
+      if(isGroup&&!state.expanded.has(item.id)) {
+        const compactItems=[];
+        walk(item.children||[], child=>compactItems.push(child));
+        for(const child of compactItems) {
+          if((child.kind==="task"&&!state.statuses.has(child.status))||!overlaps(child)) continue;
+          const tx=Math.max(labelW,Math.min(width,plotX(child.start)));
+          const compact=svgEl("circle",{cx:tx,cy:y+rowH/2,r:2.5,class:"nt-compact"+(child.status?" nt-"+child.status:"")},g);
+          bindGeometryTip(compact,child,child.start,child.point?null:child.end);
+        }
+      }
       g.addEventListener("mouseleave",()=>tooltip.classList.remove("is-visible")); g.addEventListener("dblclick",()=>navigate(item));
     });
     const cursor = svgEl("g", { class: "nt-cursor", visibility: "hidden", "aria-hidden": "true" }, svg);
