@@ -68,7 +68,7 @@
       id: path + ":" + line, kind: "task", label: cleanTaskText(task.text), start, end,
       point, status, project, path, line, dates, warning,
       marker: dates.scheduled != null && dates.scheduled !== start ? dates.scheduled : null,
-      raw: task
+      originalText: String(task.text || ""), raw: task
     };
   }
 
@@ -269,6 +269,16 @@
   }
   function svgEl(name, attrs, parent) { const el = document.createElementNS(NS, name); for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v); (parent || canvas).appendChild(el); return el; }
   function formatCoord(v) { return cfg.source === "wiki" ? formatYearOrdinal(v) : new Date(v).toISOString().slice(0, 10); }
+  function positionTip(event) {
+    const rect=root.getBoundingClientRect();
+    tooltip.style.left=Math.max(6,Math.min(event.clientX-rect.left+14,root.clientWidth-tooltip.offsetWidth-6))+"px";
+    tooltip.style.top=Math.max(6,event.clientY-rect.top+14)+"px";
+  }
+  function showOriginalTaskTip(item, event) {
+    tooltip.replaceChildren();
+    tooltip.createEl("span", { text: item.originalText || item.label || "(untitled)" });
+    tooltip.classList.add("is-visible"); positionTip(event);
+  }
   function showTip(item, event) {
     const ds = item.dates || {};
     const dateLines = Object.entries(ds).filter(([,v]) => v != null && !Number.isNaN(v)).map(([k,v]) => k + ": " + iso(v));
@@ -280,12 +290,12 @@
     if (dateLines.length) tooltip.createEl("div", { text: dateLines.join(" · ") });
     if (relative) tooltip.createEl("div", { text: relative });
     if (item.warning) tooltip.createEl("div", { text: "⚠ " + item.warning });
-    tooltip.style.left = Math.min(event.offsetX + 14, root.clientWidth - 260) + "px"; tooltip.style.top = event.offsetY + 35 + "px"; tooltip.classList.add("is-visible");
+    tooltip.classList.add("is-visible"); positionTip(event);
   }
   async function navigate(item) {
     const path = item.linkPath || item.sourcePath || item.path; if (!path) return;
     const file = app.vault.getAbstractFileByPath(path);
-    if (file) { const leaf = app.workspace.getLeaf(false); await leaf.openFile(file); const view = leaf.view; if (!item.linkPath && view?.editor && Number.isFinite(item.line)) { view.editor.setCursor({ line: Math.max(0, item.line), ch: 0 }); view.editor.scrollIntoView({ from: { line: Math.max(0, item.line - 2), ch: 0 }, to: { line: item.line + 2, ch: 0 } }, true); } }
+    if (file) { const leaf = app.workspace.getLeaf("tab"); await leaf.openFile(file); const view = leaf.view; if (!item.linkPath && view?.editor && Number.isFinite(item.line)) { view.editor.setCursor({ line: Math.max(0, item.line), ch: 0 }); view.editor.scrollIntoView({ from: { line: Math.max(0, item.line - 2), ch: 0 }, to: { line: item.line + 2, ch: 0 } }, true); } }
     else await app.workspace.openLinkText(path, sourcePath, true);
   }
 
@@ -294,7 +304,9 @@
     const width = Math.max(320, canvas.clientWidth || root.clientWidth || 800), labelW = Math.min(240, Math.max(120, width * .25));
     const plotW = width - labelW, rows = visibleRows(), rowH = 30, axisH = 38, height = Math.max(100, axisH + rows.length * rowH + 8);
     const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}`, width: "100%", height, role: "img", "aria-label": cfg.source + " timeline" });
-    const defs = svgEl("defs", {}, svg); const clip = svgEl("clipPath", { id: "nt-clip-" + Math.random().toString(36).slice(2) }, defs); svgEl("rect", { x: labelW, y: axisH, width: plotW, height: height-axisH }, clip);
+    const defs = svgEl("defs", {}, svg), clipSuffix=Math.random().toString(36).slice(2);
+    const clip = svgEl("clipPath", { id: "nt-clip-" + clipSuffix }, defs); svgEl("rect", { x: labelW, y: axisH, width: plotW, height: height-axisH }, clip);
+    const labelClipId="nt-label-clip-"+clipSuffix, labelClip=svgEl("clipPath",{id:labelClipId},defs); svgEl("rect",{x:0,y:axisH,width:Math.max(0,labelW-4),height:height-axisH},labelClip);
     svgEl("rect", { x: labelW, y: 0, width: plotW, height, class: "nt-hit-area" }, svg);
     const scale = scaleFor(plotW), plotX = v => labelW + scale.map(v);
     svgEl("line", { x1: labelW, x2: width, y1: axisH-6, y2: axisH-6, class: "nt-axis" }, svg);
@@ -306,9 +318,12 @@
       const toggle=()=>{if(hasChildren){state.expanded.has(item.id)?state.expanded.delete(item.id):state.expanded.add(item.id);render();}else navigate(item);};
       const labelHit=svgEl("rect",{x:0,y,width:labelW,height:rowH,class:"nt-label-hit"},g);
       labelHit.addEventListener("pointerdown",e=>e.stopPropagation()); labelHit.addEventListener("click",toggle);
-      const label=svgEl("text",{x:8+depth*14,y:y+20,class:"nt-label"},g);
+      const labelX=8+depth*14+(item.kind==="task"?18:0);
+      if(item.kind==="task") { const checkbox=svgEl("text",{x:8+depth*14,y:y+20,class:"nt-task-checkbox","clip-path":`url(#${labelClipId})`},g); checkbox.textContent=item.status==="completed"?"☑":item.status==="cancelled"?"☒":"☐"; }
+      const label=svgEl("text",{x:labelX,y:y+20,class:"nt-label","clip-path":`url(#${labelClipId})`},g);
       label.textContent=(hasChildren?(state.expanded.has(item.id)?"▾ ":"▸ "):"")+(item.displayLabel||item.label||"(untitled)");
       label.addEventListener("pointerdown",e=>e.stopPropagation()); label.addEventListener("click",toggle);
+      if(item.kind==="task") { label.addEventListener("mousemove",e=>showOriginalTaskTip(item,e)); label.addEventListener("mouseleave",()=>tooltip.classList.remove("is-visible")); }
       const rawA=plotX(item.start), rawB=plotX(item.end??item.start), a=Math.max(labelW,rawA), b=Math.min(width,rawB), clippedL=rawA<labelW, clippedR=rawB>width;
       if(item.point || Math.abs(b-a)<3) svgEl("circle",{cx:Math.max(labelW,Math.min(width,rawA)),cy:y+rowH/2,r:item.kind==="project"?5:4,class:"nt-mark"},g);
       else if(b>=labelW&&a<=width) { svgEl("rect",{x:a,y:y+8,width:Math.max(3,b-a),height:item.kind==="project"?14:10,rx:4,class:"nt-band"},g); if(clippedL) svgEl("path",{d:`M${labelW+6},${y+8} L${labelW},${y+15} L${labelW+6},${y+22}`,class:"nt-cont"},g); if(clippedR) svgEl("path",{d:`M${width-6},${y+8} L${width},${y+15} L${width-6},${y+22}`,class:"nt-cont"},g); }
@@ -318,7 +333,7 @@
         const tx=Math.max(labelW,Math.min(width,plotX(task.start)));
         svgEl("circle",{cx:tx,cy:y+rowH/2,r:2.5,class:"nt-compact nt-"+task.status},g);
       }
-      if(item.kind!=="project") g.addEventListener("mousemove",e=>showTip(item,e));
+      if(item.kind==="event") g.addEventListener("mousemove",e=>showTip(item,e));
       g.addEventListener("mouseleave",()=>tooltip.classList.remove("is-visible")); g.addEventListener("dblclick",()=>navigate(item));
     });
     const cursor = svgEl("g", { class: "nt-cursor", visibility: "hidden", "aria-hidden": "true" }, svg);
