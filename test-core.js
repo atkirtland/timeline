@@ -41,6 +41,12 @@ assert.equal(rootProject.end,day("2026-01-08"));
 assert.equal(nested.color,"#123456");
 assert.equal(nestedTask.color,"#123456");
 assert.deepEqual(rootProject.children,[nested]);
+const nestedEvent={kind:"event",start:day("2027-01-01"),end:day("2027-01-01"),children:[]};
+const eventRoot={kind:"event",start:day("2025-01-01"),end:day("2025-01-01"),children:[nestedEvent]};
+const eventProject={path:"events.md",label:"Events",color:"#654321",explicitStart:null,explicitEnd:null,tasks:[],events:[eventRoot],subprojects:[]};
+c.finalizeProjectTree(eventProject);
+assert.equal(eventProject.start,day("2025-01-01")); assert.equal(eventProject.end,day("2027-01-01"));
+assert.equal(nestedEvent.color,"#654321"); assert.deepEqual(eventProject.children,[eventRoot]);
 
 // Expanded descendants remain visible even when only their root overlaps the date domain.
 const outside={id:"outside",kind:"project",children:[]};
@@ -110,20 +116,43 @@ const tied=[
 assert.deepEqual(tied.map(x=>x.label),["Alpha","Beta","Zulu"]);
 
 // Historical syntax, hierarchy coordinates, and no year zero.
-for (const text of ["-2.58e6 – -11.7e3 Pleistocene", "-115e3..-11.7e3 Glacial", "1066 Battle"])
+for (const text of ["-2.58e6 – -11.7e3 Pleistocene", "-115e3 – -11.7e3 Glacial", "1066e0 Battle"])
   assert.ok(c.parseWikiText(text), text);
-for (const text of ["1945 – Ongoing era", "1945.. Ongoing era", "1945 - Ongoing era"]) {
+for (const text of ["1945 – Ongoing era"]) {
   const ongoing=c.parseWikiText(text);
   assert.equal(ongoing.ongoing,true,text); assert.equal(ongoing.point,false,text);
   assert.equal(c.calendarYearFromOrdinal(ongoing.end),new Date().getUTCFullYear(),text);
 }
-assert.equal(c.parseWikiText("0 Impossible").error.includes("zero"), true);
+assert.equal(c.parseWikiText("0e0 Impossible").error.includes("zero"), true);
 assert.equal(c.ordinalFromCalendarYear(-1), -1); assert.equal(c.ordinalFromCalendarYear(1), 0);
 assert.equal(c.calendarYearFromOrdinal(0), 1);
 assert.equal(c.formatYearOrdinal(c.ordinalFromCalendarYear(2026)), "2026 CE");
 assert.equal(c.formatYearOrdinal(c.ordinalFromCalendarYear(-1150)), "1150 BCE");
 assert.equal(c.parseWikiText("12 – 10 inverted").warning, "Inverted interval");
 assert.equal(c.parseWikiText("ordinary prose"), null);
+assert.equal(c.parseWikiText("1066 Battle"),null);
+assert.equal(c.parseWikiText("1066E0 Battle"),null);
+assert.equal(c.parseWikiText("1066e+0 Battle"),null);
+assert.equal(c.looksLikeWikiEvent("1066 Battle"),false);
+assert.equal(c.looksLikeWikiEvent("1066E0 Battle"),true);
+for (const text of ["2026-08e0 Monthly point", "2026-08-17e0 Daily point", "2026-08–2026-09 fish", "2026-08-17–2026-09-02 trip"])
+  assert.ok(c.parseWikiText(text), text);
+assert.equal(c.parseWikiText("2026-02-29e0 Invalid date").error.includes("Invalid date"),true);
+assert.equal(c.parseWikiText("2026-08 Monthly point"),null);
+assert.equal(c.parseWikiText("2026-08-17 Daily point"),null);
+assert.equal(c.parseWikiText("1945.. Ongoing era"),null);
+assert.equal(c.parseWikiText("1945 - Ongoing era"),null);
+const miscPoint=c.parseMiscEvent("2026e0 Example",day("2026-09-10"));
+assert.equal(miscPoint.start,day("2026-01-01")); assert.equal(miscPoint.end,day("2026-01-01"));
+const miscRange=c.parseMiscEvent("2024 – 2026 Example",day("2026-09-10"));
+assert.equal(miscRange.start,day("2024-01-01")); assert.equal(miscRange.end,day("2026-01-01"));
+const miscOngoing=c.parseMiscEvent("2024 – Still happening",day("2026-09-10"));
+assert.equal(miscOngoing.end,day("2026-09-10"));
+const miscMonths=c.parseMiscEvent("2026-08–2026-09 fish",day("2026-09-10"));
+assert.equal(miscMonths.start,day("2026-08-01")); assert.equal(miscMonths.end,day("2026-09-01"));
+const miscDays=c.parseMiscEvent("2026-08-17–2026-09-02 trip",day("2026-09-10"));
+assert.equal(miscDays.start,day("2026-08-17")); assert.equal(miscDays.end,day("2026-09-02"));
+assert.equal(c.parseMiscEvent("2024.5 – 2026 Invalid",day("2026-09-10")).error.includes("whole-number"),true);
 
 // Linear/log transforms are monotonic, invertible, and finite at present.
 const lin=c.linearScale(-100,100,0,500), log=c.logScale(-2000,2025,0,500,2025);

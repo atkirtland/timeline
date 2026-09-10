@@ -6,10 +6,12 @@
   const PRESENT_YEAR = new Date().getUTCFullYear();
   const NS = "http://www.w3.org/2000/svg";
   const DATE_RE = /(?:^|\s)(🛫|⏳|📅|✅|➕)\s*(\d{4}-\d{2}-\d{2})(?=\s|$)/gu;
-  const YEAR_NUMBER = "[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e[+-]?\\d+)?";
-  const WIKI_RANGE_RE = new RegExp("^\\s*(" + YEAR_NUMBER + ")\\s*(?:–|\\.\\.)\\s*(" + YEAR_NUMBER + ")\\s+(.+?)\\s*$", "i");
-  const WIKI_OPEN_RANGE_RE = new RegExp("^\\s*(" + YEAR_NUMBER + ")\\s*(?:–|\\.\\.|-)\\s+(.+?)\\s*$", "i");
-  const WIKI_POINT_RE = new RegExp("^\\s*(" + YEAR_NUMBER + ")\\s+(.+?)\\s*$", "i");
+  const YEAR_NUMBER = "[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e-?\\d+)?";
+  const CALENDAR_DATE = "\\d{4}-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\\d|3[01]))?";
+  const DATE_TOKEN = "(?:" + CALENDAR_DATE + "|" + YEAR_NUMBER + ")";
+  const WIKI_RANGE_RE = new RegExp("^\\s*(" + DATE_TOKEN + ")\\s*–\\s*(" + DATE_TOKEN + ")\\s+(.+?)\\s*$");
+  const WIKI_OPEN_RANGE_RE = new RegExp("^\\s*(" + DATE_TOKEN + ")\\s*–\\s+(.+?)\\s*$");
+  const WIKI_POINT_RE = new RegExp("^\\s*([+-]?\\d+e0|" + CALENDAR_DATE + "e0)\\s+(.+?)\\s*$");
 
   function dateMs(value) {
     if (!value) return null;
@@ -155,11 +157,16 @@
     project.color = project.color ?? inheritedColor;
     for (const child of project.subprojects || []) finalizeProjectTree(child, project.color);
     for (const task of project.tasks || []) task.color = project.color;
-    const dated = (project.tasks || []).concat(project.subprojects || []).filter(item => item.start != null);
+    const colorEvents = items => { for (const event of items || []) { event.color = event.color ?? project.color; colorEvents(event.children); } };
+    colorEvents(project.events);
+    const events = [];
+    const collectEvents = items => { for (const event of items || []) { events.push(event); collectEvents(event.children); } };
+    collectEvents(project.events);
+    const dated = (project.tasks || []).concat(events, project.subprojects || []).filter(item => item.start != null);
     project.start = project.explicitStart ?? (dated.length ? Math.min(...dated.map(item => item.start)) : null);
     project.end = project.explicitEnd ?? (dated.length ? Math.max(...dated.map(item => item.end ?? item.start)) : null);
     project.subprojects.sort(compareTasks);
-    project.children = project.subprojects.concat(project.tasks || []);
+    project.children = project.subprojects.concat(project.events || [], project.tasks || []);
     return project;
   }
 
@@ -179,23 +186,65 @@
     return n + (y < 0 ? " BCE" : " CE");
   }
 
+  function parseEventDateToken(raw, point = false) {
+    const original = String(raw), text = point ? original.slice(0, -2) : original;
+    if (/^\d{4}-/.test(text)) {
+      const parts = text.split("-").map(Number), year = parts[0], month = parts[1], day = parts[2] ?? 1;
+      const ms = Date.parse(`${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T00:00:00Z`);
+      const date = new Date(ms);
+      if (!Number.isFinite(ms) || date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) return null;
+      const yearStart = Date.parse(`${String(year).padStart(4, "0")}-01-01T00:00:00Z`);
+      const nextStart = Date.parse(`${String(year + 1).padStart(4, "0")}-01-01T00:00:00Z`);
+      return { raw: original, year, ms, ordinal: ordinalFromCalendarYear(year) + (ms - yearStart) / (nextStart - yearStart) };
+    }
+    const year = Number(text);
+    if (!Number.isFinite(year) || year === 0) return null;
+    return { raw: original, year, ms: calendarYearDateMs(year), ordinal: ordinalFromCalendarYear(year) };
+  }
+
   function parseWikiText(text) {
     const raw = String(text || "").replace(/^[-*+]\s+/, "");
     let m = raw.match(WIKI_RANGE_RE), ranged = true, ongoing = false;
     if (!m) { m = raw.match(WIKI_OPEN_RANGE_RE); ongoing = Boolean(m); }
     if (!m) { m = raw.match(WIKI_POINT_RE); ranged = false; }
     if (!m) return null;
-    const a = Number(m[1]), b = ongoing ? PRESENT_YEAR : ranged ? Number(m[2]) : a;
-    const start = ordinalFromCalendarYear(a), end = ordinalFromCalendarYear(b);
-    if (start == null || end == null) return { error: "Year zero or an invalid year", text: raw };
+    const a = parseEventDateToken(m[1], !ranged), b = ongoing ? parseEventDateToken(String(PRESENT_YEAR)) : ranged ? parseEventDateToken(m[2]) : a;
+    const start = a?.ordinal, end = b?.ordinal;
+    if (start == null || end == null) return { error: "Invalid date or year zero", text: raw };
     const label = m[ongoing ? 2 : ranged ? 3 : 2];
-    if (start > end) return { label, start, end: start, point: true, warning: "Inverted interval", rawStart: a, rawEnd: b };
-    return { label, start, end, point: !ranged, ongoing, warning: null, rawStart: a, rawEnd: b };
+    const fields = { rawStart: a.year, rawEnd: b.year, startDate: a, endDate: b };
+    if (start > end) return Object.assign({ label, start, end: start, point: true, warning: "Inverted interval" }, fields);
+    return Object.assign({ label, start, end, point: !ranged, ongoing, warning: null }, fields);
+  }
+
+  function looksLikeWikiEvent(text) {
+    const raw = String(text || "").replace(/^[-*+]\s+/, "");
+    return new RegExp("^\\s*" + DATE_TOKEN + "\\s*–").test(raw) ||
+      /^\s*(?:[+-]?\d+(?:e0|E0|e[+-]0)|\d{4}-\d{2}(?:-\d{2})?(?:e0|E0|e[+-]0))\s+/.test(raw);
   }
 
   function firstWikiTarget(text) {
     const m = String(text || "").match(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/);
     return m ? { path: m[1], label: m[2] || m[1].split("/").pop() } : null;
+  }
+
+  function calendarYearDateMs(year) {
+    if (!Number.isFinite(year) || year === 0 || !Number.isInteger(year)) return null;
+    const date = new Date(0);
+    date.setUTCHours(0, 0, 0, 0);
+    date.setUTCMonth(0, 1);
+    date.setUTCFullYear(year);
+    return date.getTime();
+  }
+
+  function parseMiscEvent(text, todayMs) {
+    const parsed = parseWikiText(text);
+    if (!parsed || parsed.error) return parsed;
+    const start = parsed.startDate.ms;
+    const end = parsed.ongoing ? todayMs : parsed.endDate.ms;
+    if (start == null || end == null)
+      return { error: "Misc timeline events require whole-number calendar years", text: String(text || "") };
+    return Object.assign({}, parsed, { start, end });
   }
 
   function linearScale(domainStart, domainEnd, rangeStart, rangeEnd) {
@@ -238,7 +287,7 @@
   }
 
   const Core = { dateMs, timelineColor, taskDates, taskStatus, normalizeTask, childFieldValues, childLinkPath, buildProjectHierarchy, finalizeProjectTree, ordinalFromCalendarYear, calendarYearFromOrdinal,
-    formatYearOrdinal, parseWikiText, linearScale, logTransform, logInverse, logScale, zoomDomain,
+    formatYearOrdinal, parseWikiText, looksLikeWikiEvent, calendarYearDateMs, parseMiscEvent, linearScale, logTransform, logInverse, logScale, zoomDomain,
     compareTasks, expandedRows };
   if (typeof globalThis !== "undefined") globalThis.TimelineCore = Core;
   if (typeof dv === "undefined") return;
@@ -258,11 +307,11 @@
       const path = String(page.file?.path || "");
       if (!under(path, cfg.projectFolder)) continue;
       projects.set(path, { id: "project:" + path, kind: "project", label: String(page.file?.name || path.split("/").pop()),
-        path, children: [], tasks: [], subprojects: [], color: timelineColor(page),
+        path, children: [], tasks: [], events: [], subprojects: [], color: timelineColor(page),
         explicitStart: dateMs(page["timeline-start"]), explicitEnd: dateMs(page["timeline-end"]), childPaths: [] });
     }
     const uncategorized = { id: "project:Uncategorized", kind: "project", label: "Uncategorized", path: "", children: [],
-      tasks: [], subprojects: [], color: null, explicitStart: null, explicitEnd: null, childPaths: [] };
+      tasks: [], events: [], subprojects: [], color: null, explicitStart: null, explicitEnd: null, childPaths: [] };
     function resolvedProjectPath(value, sourcePath) {
       const linkPath = childLinkPath(value); if (!linkPath) return null;
       const resolved = app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath)?.path;
@@ -284,12 +333,35 @@
         seen.add(item.id);
         project.tasks.push(item);
       }
+      const allEvents = new Map();
+      for (const [i, li] of Array.from(page.file?.lists || []).entries()) {
+        if (li.task) continue;
+        const parsed = parseMiscEvent(li.text, todayMs);
+        if (!parsed || parsed.error) {
+          if (looksLikeWikiEvent(li.text))
+            diagnostics.push(path + ":" + (li.line ?? i) + " — " + (parsed?.error || "Malformed date bullet"));
+          continue;
+        }
+        const link = firstWikiTarget(parsed.label), id = path + ":" + Number(li.line ?? i);
+        const item = Object.assign(parsed, { id, kind: "event", path, sourcePath: path,
+          linkPath: link?.path || null, line: Number(li.line ?? i), displayLabel: link?.label || parsed.label,
+          color: project.color, children: [] });
+        allEvents.set(id, item);
+        const parentLine = typeof li.parent === "number" ? li.parent : li.parent?.line;
+        const parent = parentLine == null ? null : allEvents.get(path + ":" + parentLine);
+        if (parent) parent.children.push(item); else project.events.push(item);
+      }
     }
     let undated = 0;
     for (const project of [...projects.values(), uncategorized]) {
       const dated = project.tasks.filter(task => task.start != null);
       undated += project.tasks.length - dated.length;
       project.tasks = dated.sort(compareTasks);
+      const sortEvents = items => {
+        items.sort((a, b) => a.start - b.start || (a.end ?? a.start) - (b.end ?? b.start) || a.line - b.line);
+        for (const item of items) sortEvents(item.children || []);
+      };
+      sortEvents(project.events);
     }
     const hierarchy = buildProjectHierarchy(Array.from(projects.values()));
     diagnostics.push(...hierarchy.diagnostics);
@@ -315,7 +387,7 @@
         if (li.task) continue;
         const parsed = parseWikiText(li.text);
         if (!parsed || parsed.error) {
-          if (/^\s*[+-]?(?:\d|\.\d)/.test(String(li.text || ""))) diagnostics.push(path + ":" + (li.line ?? i) + " — " + (parsed?.error || "Malformed date bullet"));
+          if (looksLikeWikiEvent(li.text)) diagnostics.push(path + ":" + (li.line ?? i) + " — " + (parsed?.error || "Malformed date bullet"));
           continue;
         }
         if (parsed.end > ordinalFromCalendarYear(PRESENT_YEAR)) { diagnostics.push(path + ":" + (li.line ?? i) + " — future event omitted"); continue; }
