@@ -1,5 +1,3 @@
-# Misc timeline
-
 ```dataviewjs
 await dv.view("timeline", {
   source: "misc",
@@ -7,7 +5,7 @@ await dv.view("timeline", {
   projectFolder: "misc/projects",
   showUncategorized: false,
   initialBefore: "1 month",
-  initialAfter: "1 month"
+  initialAfter: "1 month",
+  COLOR_MAP: {}
 })
 ```
-

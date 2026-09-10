@@ -7,6 +7,19 @@ assert.equal(c.dateMs(2100), c.dateMs("2100-01-01"));
 assert.equal(c.dateMs(4102444800000), day("2100-01-01"));
 assert.equal(c.timelineColor({"timeline-color":" #5b8cff "}), "#5b8cff");
 assert.equal(c.timelineColor({}), null);
+const colorMap = [
+  {pattern: /^(\?)$/, bg: "black-bg", border: "black-border"},
+  {pattern: /w/, bg: "blue-bg", border: "blue-border"},
+  {pattern: /p/, color: "pink-color"},
+  {pattern: "z", bg: "purple-bg"}
+];
+assert.equal(c.timelineColor({"timeline-category":"w"}), null);
+assert.equal(c.timelineColor({"timeline-category":"w"}, colorMap), "blue-border");
+assert.equal(c.timelineColor({"timeline-category":"project-p"}, colorMap), "pink-color");
+assert.equal(c.timelineColor({"timeline-category":"?"}, colorMap), "black-border");
+assert.equal(c.timelineColor({"timeline-category":["z", "w"]}, colorMap), "blue-border");
+assert.equal(c.timelineColor({"timeline-category":"none"}), null);
+assert.equal(c.timelineColor({"timeline-color":"#abcdef", "timeline-category":"w"}, colorMap), "#abcdef");
 assert.deepEqual(c.childFieldValues(null), []);
 assert.deepEqual(c.childFieldValues("[[One]]"), ["[[One]]"]);
 assert.deepEqual(c.childFieldValues(["[[One]]", "Two"]), ["[[One]]", "Two"]);

@@ -12,7 +12,6 @@
   const WIKI_RANGE_RE = new RegExp("^\\s*(" + DATE_TOKEN + ")\\s*–\\s*(" + DATE_TOKEN + ")\\s+(.+?)\\s*$");
   const WIKI_OPEN_RANGE_RE = new RegExp("^\\s*(" + DATE_TOKEN + ")\\s*–\\s+(.+?)\\s*$");
   const WIKI_POINT_RE = new RegExp("^\\s*([+-]?\\d+e0|" + CALENDAR_DATE + "e0)\\s+(.+?)\\s*$");
-
   function dateMs(value) {
     if (!value) return null;
     if (typeof value === "number") {
@@ -31,9 +30,24 @@
 
   function iso(ms) { return ms == null ? null : new Date(ms).toISOString().slice(0, 10); }
 
-  function timelineColor(page) {
+  function timelineCategoryColor(value, colorMap = []) {
+    if (value == null) return null;
+    const category = Array.isArray(value) ? value.map(String).join("") : String(value);
+    const match = Array.from(colorMap || []).find(entry => {
+      if (entry?.pattern instanceof RegExp) {
+        entry.pattern.lastIndex = 0;
+        return entry.pattern.test(category);
+      }
+      return entry?.pattern != null && category.includes(String(entry.pattern));
+    });
+    const color = match?.color ?? match?.border ?? match?.bg;
+    return color == null ? null : String(color).trim() || null;
+  }
+
+  function timelineColor(page, colorMap = []) {
     const value = page?.["timeline-color"];
-    return value == null ? null : String(value).trim() || null;
+    const explicit = value == null ? null : String(value).trim() || null;
+    return explicit || timelineCategoryColor(page?.["timeline-category"], colorMap);
   }
 
   function taskDates(task) {
@@ -286,7 +300,7 @@
     return rows;
   }
 
-  const Core = { dateMs, timelineColor, taskDates, taskStatus, normalizeTask, childFieldValues, childLinkPath, buildProjectHierarchy, finalizeProjectTree, ordinalFromCalendarYear, calendarYearFromOrdinal,
+  const Core = { dateMs, timelineCategoryColor, timelineColor, taskDates, taskStatus, normalizeTask, childFieldValues, childLinkPath, buildProjectHierarchy, finalizeProjectTree, ordinalFromCalendarYear, calendarYearFromOrdinal,
     formatYearOrdinal, parseWikiText, looksLikeWikiEvent, calendarYearDateMs, parseMiscEvent, linearScale, logTransform, logInverse, logScale, zoomDomain,
     compareTasks, expandedRows };
   if (typeof globalThis !== "undefined") globalThis.TimelineCore = Core;
@@ -307,7 +321,7 @@
       const path = String(page.file?.path || "");
       if (!under(path, cfg.projectFolder)) continue;
       projects.set(path, { id: "project:" + path, kind: "project", label: String(page.file?.name || path.split("/").pop()),
-        path, children: [], tasks: [], events: [], subprojects: [], color: timelineColor(page),
+        path, children: [], tasks: [], events: [], subprojects: [], color: timelineColor(page, cfg.COLOR_MAP),
         explicitStart: dateMs(page["timeline-start"]), explicitEnd: dateMs(page["timeline-end"]), childPaths: [] });
     }
     const uncategorized = { id: "project:Uncategorized", kind: "project", label: "Uncategorized", path: "", children: [],
@@ -409,7 +423,7 @@
       const dated = [];
       const collect = items => { for (const item of items) { dated.push(item); collect(item.children || []); } };
       collect(roots);
-      const color = timelineColor(page);
+      const color = timelineColor(page, cfg.COLOR_MAP);
       if (color) for (const item of dated) item.color = color;
       groups.push({
         id: "history-group:" + path, kind: "history-group",
@@ -629,7 +643,7 @@
       const y=axisH+idx*rowH, g=svgEl("g",{class:"nt-row nt-"+item.kind+(item.status?" nt-"+item.status:"")+(state.findId===item.id?" is-find-current":""),"data-item-id":item.id},svg);
       if(item.color) {
         g.style.setProperty("--nt-color",item.color);
-        g.style.setProperty("--nt-item-color",item.kind === "task" || item.kind === "event" ? `color-mix(in srgb, ${item.color} 40%, white)` : item.color);
+        g.style.setProperty("--nt-item-color",item.color);
       }
       svgEl("rect",{x:0,y,width,height:rowH,class:"nt-row-bg"},g);
       const hasChildren=(item.children||[]).length>0;
@@ -664,7 +678,7 @@
           if((child.kind==="task"&&!state.statuses.has(child.status))||!overlaps(child)) continue;
           const tx=Math.max(labelW,Math.min(width,plotX(child.start)));
           const compact=svgEl("circle",{cx:tx,cy:y+rowH/2,r:2.5,class:"nt-compact"+(child.status?" nt-"+child.status:"")},g);
-          if(child.color)compact.style.setProperty("--nt-item-color",`color-mix(in srgb, ${child.color} 40%, white)`);
+          if(child.color)compact.style.setProperty("--nt-color",child.color);
           bindGeometryTip(compact,child,child.start,child.point?null:child.end);
         }
       }

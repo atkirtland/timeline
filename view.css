@@ -25,11 +25,11 @@
 .native-timeline .nt-cancelled .nt-task-checkbox { fill: var(--text-error); }
 .native-timeline .nt-band { fill: var(--nt-item-color, var(--interactive-accent)); opacity: .72; pointer-events: all; }
 .native-timeline .nt-project .nt-band, .native-timeline .nt-history-group .nt-band, .native-timeline .nt-event:has(.nt-band) .nt-band { opacity: .48; }
-.native-timeline .nt-mark { fill: var(--nt-item-color, var(--interactive-accent)); stroke: var(--background-primary); stroke-width: 1.5; pointer-events: all; }
-.native-timeline .nt-compact { fill: var(--nt-item-color, var(--text-on-accent)); stroke: var(--nt-item-color, var(--interactive-accent)); stroke-width: 1; pointer-events: all; }
+.native-timeline .nt-mark { fill: var(--nt-color, var(--interactive-accent)); stroke: var(--background-primary); stroke-width: 1.5; pointer-events: all; }
+.native-timeline .nt-compact { fill: var(--nt-color, var(--text-on-accent)); stroke: var(--nt-color, var(--interactive-accent)); stroke-width: 1; pointer-events: all; }
 .native-timeline .nt-completed, .native-timeline .nt-cancelled { opacity: .48; }
 .native-timeline .nt-cancelled .nt-band, .native-timeline .nt-cancelled .nt-mark { fill: var(--nt-item-color, var(--text-error)); }
-.native-timeline .nt-scheduled { stroke: var(--nt-item-color, var(--text-accent)); stroke-width: 3; pointer-events: stroke; }
+.native-timeline .nt-scheduled { stroke: var(--nt-color, var(--text-accent)); stroke-width: 3; pointer-events: stroke; }
 .native-timeline .nt-cont { fill: none; stroke: var(--text-on-accent); stroke-width: 2; }
 .native-timeline .nt-cursor { pointer-events: none; }
 .native-timeline .nt-cursor-line { stroke: var(--text-accent); stroke-width: 1; stroke-dasharray: 3 3; }
