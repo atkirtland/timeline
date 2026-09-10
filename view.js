@@ -92,6 +92,72 @@
     return path || (Number(a.line) || 0) - (Number(b.line) || 0);
   }
 
+  function childFieldValues(value) {
+    if (value == null) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value !== "string" && typeof value?.[Symbol.iterator] === "function") return Array.from(value);
+    return [value];
+  }
+
+  function childLinkPath(value) {
+    if (value == null) return null;
+    if (typeof value === "object" && value.path != null) return String(value.path).trim() || null;
+    const raw = String(value).trim();
+    const wiki = raw.match(/^\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]$/);
+    return (wiki ? wiki[1] : raw).trim() || null;
+  }
+
+  function buildProjectHierarchy(projects) {
+    const diagnostics = [], byPath = new Map(projects.map(project => [project.path, project]));
+    const candidates = new Map();
+    for (const parent of projects) {
+      for (const childPath of new Set(parent.childPaths || [])) {
+        const child = byPath.get(childPath);
+        if (!child) continue;
+        if (child === parent) { diagnostics.push(parent.path + " — project cannot be its own child"); continue; }
+        if (!candidates.has(childPath)) candidates.set(childPath, []);
+        candidates.get(childPath).push(parent.path);
+      }
+    }
+    const parentOf = new Map();
+    for (const [childPath, parentPaths] of candidates) {
+      if (parentPaths.length === 1) parentOf.set(childPath, parentPaths[0]);
+      else diagnostics.push(childPath + " — multiple project parents: " + parentPaths.join(", "));
+    }
+    const state = new Map(), stack = [], cycleNodes = new Set();
+    function visit(path) {
+      if (state.get(path) === 2) return;
+      if (state.get(path) === 1) {
+        const at = stack.indexOf(path);
+        for (const member of stack.slice(at)) cycleNodes.add(member);
+        return;
+      }
+      state.set(path, 1); stack.push(path);
+      const parent = parentOf.get(path); if (parent) visit(parent);
+      stack.pop(); state.set(path, 2);
+    }
+    for (const project of projects) visit(project.path);
+    if (cycleNodes.size) {
+      diagnostics.push("Project hierarchy cycle: " + Array.from(cycleNodes).join(", "));
+      for (const path of cycleNodes) parentOf.delete(path);
+    }
+    for (const project of projects) project.subprojects = [];
+    for (const [childPath, parentPath] of parentOf) byPath.get(parentPath).subprojects.push(byPath.get(childPath));
+    return { roots: projects.filter(project => !parentOf.has(project.path)), diagnostics, parentOf };
+  }
+
+  function finalizeProjectTree(project, inheritedColor = null) {
+    project.color = project.color ?? inheritedColor;
+    for (const child of project.subprojects || []) finalizeProjectTree(child, project.color);
+    for (const task of project.tasks || []) task.color = project.color;
+    const dated = (project.tasks || []).concat(project.subprojects || []).filter(item => item.start != null);
+    project.start = project.explicitStart ?? (dated.length ? Math.min(...dated.map(item => item.start)) : null);
+    project.end = project.explicitEnd ?? (dated.length ? Math.max(...dated.map(item => item.end ?? item.start)) : null);
+    project.subprojects.sort(compareTasks);
+    project.children = project.subprojects.concat(project.tasks || []);
+    return project;
+  }
+
   function ordinalFromCalendarYear(year) {
     if (!Number.isFinite(year) || year === 0) return null;
     return year > 0 ? year - 1 : year;
@@ -154,7 +220,7 @@
     ];
   }
 
-  const Core = { dateMs, timelineColor, taskDates, taskStatus, normalizeTask, ordinalFromCalendarYear, calendarYearFromOrdinal,
+  const Core = { dateMs, timelineColor, taskDates, taskStatus, normalizeTask, childFieldValues, childLinkPath, buildProjectHierarchy, finalizeProjectTree, ordinalFromCalendarYear, calendarYearFromOrdinal,
     formatYearOrdinal, parseWikiText, linearScale, logTransform, logInverse, logScale, zoomDomain,
     compareTasks };
   if (typeof globalThis !== "undefined") globalThis.TimelineCore = Core;
@@ -170,37 +236,57 @@
   function under(path, folder) { return path === folder || path.startsWith(folder.replace(/\/$/, "") + "/"); }
 
   function miscModel() {
-    const pages = pageArray(cfg.pages);
-    const projects = new Map(), seen = new Set();
+    const pages = pageArray(cfg.pages), projects = new Map(), seen = new Set(), diagnostics = [];
+    for (const page of pages) {
+      const path = String(page.file?.path || "");
+      if (!under(path, cfg.projectFolder)) continue;
+      projects.set(path, { id: "project:" + path, kind: "project", label: String(page.file?.name || path.split("/").pop()),
+        path, children: [], tasks: [], subprojects: [], color: timelineColor(page),
+        explicitStart: dateMs(page["timeline-start"]), explicitEnd: dateMs(page["timeline-end"]), childPaths: [] });
+    }
+    const uncategorized = { id: "project:Uncategorized", kind: "project", label: "Uncategorized", path: "", children: [],
+      tasks: [], subprojects: [], color: null, explicitStart: null, explicitEnd: null, childPaths: [] };
+    function resolvedProjectPath(value, sourcePath) {
+      const linkPath = childLinkPath(value); if (!linkPath) return null;
+      const resolved = app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath)?.path;
+      if (resolved && projects.has(resolved)) return resolved;
+      if (projects.has(linkPath)) return linkPath;
+      if (projects.has(linkPath + ".md")) return linkPath + ".md";
+      return null;
+    }
     for (const page of pages) {
       const path = String(page.file?.path || "");
       const isProject = under(path, cfg.projectFolder);
-      const name = isProject ? String(page.file?.name || path.split("/").pop()) : "Uncategorized";
-      if (!projects.has(name)) projects.set(name, { id: "project:" + name, kind: "project", label: name, path: isProject ? path : "", children: [], color: isProject ? timelineColor(page) : null, explicitStart: dateMs(page["timeline-start"]), explicitEnd: dateMs(page["timeline-end"]) });
-      const project = projects.get(name);
+      const project = isProject ? projects.get(path) : uncategorized;
       if (isProject) {
-        project.color = timelineColor(page) ?? project.color;
-        project.explicitStart = dateMs(page["timeline-start"]) ?? project.explicitStart;
-        project.explicitEnd = dateMs(page["timeline-end"]) ?? project.explicitEnd;
+        project.childPaths = childFieldValues(page.child).map(value => resolvedProjectPath(value, path)).filter(Boolean);
       }
       for (const [i, task] of Array.from(page.file?.tasks || []).entries()) {
-        const item = normalizeTask(task, todayMs, name, i);
+        const item = normalizeTask(task, todayMs, project.label, i);
         if (seen.has(item.id)) continue;
         seen.add(item.id);
-        project.children.push(item);
+        project.tasks.push(item);
       }
     }
     let undated = 0;
-    for (const p of projects.values()) {
-      const dated = p.children.filter(t => t.start != null);
-      undated += p.children.length - dated.length;
-      p.start = p.explicitStart ?? (dated.length ? Math.min(...dated.map(t => t.start)) : null);
-      p.end = p.explicitEnd ?? (dated.length ? Math.max(...dated.map(t => t.end ?? t.start)) : null);
-      for (const task of dated) task.color = p.color;
-      p.children = dated.sort(compareTasks);
+    for (const project of [...projects.values(), uncategorized]) {
+      const dated = project.tasks.filter(task => task.start != null);
+      undated += project.tasks.length - dated.length;
+      project.tasks = dated.sort(compareTasks);
     }
-    const roots = Array.from(projects.values()).sort(compareTasks);
-    return { roots, diagnostics: [], undated };
+    const hierarchy = buildProjectHierarchy(Array.from(projects.values()));
+    diagnostics.push(...hierarchy.diagnostics);
+    for (const root of hierarchy.roots) finalizeProjectTree(root);
+    finalizeProjectTree(uncategorized);
+    const roots = hierarchy.roots.sort(compareTasks).concat(uncategorized);
+    const filterEntries = [];
+    function addFilter(project, ancestors) {
+      filterEntries.push({ item: project, label: ancestors.concat(project.label).join(" › ") });
+      for (const child of project.subprojects) addFilter(child, ancestors.concat(project.label));
+    }
+    for (const root of hierarchy.roots) addFilter(root, []);
+    filterEntries.push({ item: uncategorized, label: uncategorized.label });
+    return { roots, diagnostics, undated, filterEntries };
   }
 
   function wikiModel() {
@@ -254,6 +340,13 @@
     scale: cfg.source === "wiki" && cfg.scale !== "linear" ? "log" : "linear", dragging: false,
     findQuery: "", findIndex: -1, findId: null };
   function rootIsShown(item) { return cfg.source === "wiki" || state.showUncategorized || item.id !== "project:Uncategorized"; }
+  function activeRoots() {
+    if (state.project !== "all") {
+      const entry = (model.filterEntries || model.roots.map(item => ({ item }))).find(candidate => candidate.item.id === state.project);
+      return entry ? [entry.item] : [];
+    }
+    return model.roots.filter(rootItem => rootIsShown(rootItem));
+  }
   const presentOrdinal = ordinalFromCalendarYear(PRESENT_YEAR);
   function durationOffset(value, direction) {
     const m = String(value || "1 month").trim().match(/^(\d+(?:\.\d+)?)\s*(day|week|month|year)s?$/i);
@@ -279,16 +372,17 @@
 
   function button(label, title, fn) { const b = toolbar.createEl("button", { text: label, attr: { title } }); b.addEventListener("click", fn); return b; }
   button("Present", "Return to the initial present-centered range", () => { state.domain = cfg.source === "wiki" ? [ordinalFromCalendarYear(PRESENT_YEAR - Number(cfg.initialYearsBack || 2000)), presentOrdinal] : [todayMs + durationOffset(cfg.initialBefore, -1), todayMs + durationOffset(cfg.initialAfter, 1)]; render(); });
-  button("Fit all", "Fit all dated items", () => { const values = []; for (const item of model.roots) if (rootIsShown(item)) walk([item], x => { if (x.start != null) values.push(x.start, x.end ?? x.start); }); if (values.length) { let a = Math.min(...values), b = Math.max(...values); const pad = (b - a || (cfg.source === "wiki" ? 10 : 7 * DAY)) * .05; state.domain = [a - pad, Math.min(b + pad, cfg.source === "wiki" ? presentOrdinal : Infinity)]; render(); } });
+  button("Fit all", "Fit all dated items", () => { const values = []; for (const item of activeRoots()) walk([item], x => { if (x.start != null) values.push(x.start, x.end ?? x.start); }); if (values.length) { let a = Math.min(...values), b = Math.max(...values); const pad = (b - a || (cfg.source === "wiki" ? 10 : 7 * DAY)) * .05; state.domain = [a - pad, Math.min(b + pad, cfg.source === "wiki" ? presentOrdinal : Infinity)]; render(); } });
   if (cfg.source === "wiki") button(state.scale === "log" ? "Log" : "Linear", "Toggle axis scale", e => { state.scale = state.scale === "log" ? "linear" : "log"; e.currentTarget.textContent = state.scale === "log" ? "Log" : "Linear"; render(); });
   {
     const isWiki = cfg.source === "wiki";
     const select = projectSelect = toolbar.createEl("select", { attr: { "aria-label": isWiki ? "Note filter" : "Project filter" } });
     select.createEl("option", { text: isWiki ? "All notes" : "All projects", attr: { value: "all" } });
-    for (const p of model.roots) select.createEl("option", { text: p.label, attr: { value: p.label } });
+    for (const entry of model.filterEntries || model.roots.map(item => ({ item, label: item.label })))
+      select.createEl("option", { text: entry.label, attr: { value: entry.item.id } });
     select.addEventListener("change", () => {
       state.project = select.value;
-      if (!isWiki && select.value === "Uncategorized") { state.showUncategorized = true; updateUncategorizedControl(); }
+      if (!isWiki && select.value === "project:Uncategorized") { state.showUncategorized = true; updateUncategorizedControl(); }
       render();
     });
     if (!isWiki) {
@@ -312,7 +406,7 @@
     updateUncategorizedControl = () => { check.checked = state.showUncategorized; };
     check.addEventListener("change", () => {
       state.showUncategorized = check.checked;
-      if (!state.showUncategorized && state.project === "Uncategorized") {
+      if (!state.showUncategorized && state.project === "project:Uncategorized") {
         state.project = "all";
         if (projectSelect) projectSelect.value = "all";
       }
@@ -334,7 +428,7 @@
         visit(item.children||[],ancestors.concat(item));
       }
     }
-    for (const item of model.roots) if (rootIsShown(item)) visit([item],[]);
+    for (const item of activeRoots()) visit([item],[]);
     return found;
   }
   function updateFindCount() {
@@ -386,11 +480,7 @@
       rows.push({ item, depth });
       if (state.expanded.has(item.id)) for (const child of item.children || []) add(child, depth + 1);
     }
-    for (const rootItem of model.roots) {
-      if (!rootIsShown(rootItem)) continue;
-      if (state.project !== "all" && rootItem.label !== state.project) continue;
-      add(rootItem, 0);
-    }
+    for (const rootItem of activeRoots()) add(rootItem, 0);
     return rows;
   }
 
@@ -485,7 +575,7 @@
       }
       if(isGroup&&!state.expanded.has(item.id)) {
         const compactItems=[];
-        walk(item.children||[], child=>compactItems.push(child));
+        walk(item.children||[], child=>{ if(child.kind==="task"||child.kind==="event")compactItems.push(child); });
         for(const child of compactItems) {
           if((child.kind==="task"&&!state.statuses.has(child.status))||!overlaps(child)) continue;
           const tx=Math.max(labelW,Math.min(width,plotX(child.start)));

@@ -4,6 +4,40 @@ const c = globalThis.TimelineCore;
 const day = s => Date.parse(s + "T00:00:00Z");
 assert.equal(c.timelineColor({"timeline-color":" #5b8cff "}), "#5b8cff");
 assert.equal(c.timelineColor({}), null);
+assert.deepEqual(c.childFieldValues(null), []);
+assert.deepEqual(c.childFieldValues("[[One]]"), ["[[One]]"]);
+assert.deepEqual(c.childFieldValues(["[[One]]", "Two"]), ["[[One]]", "Two"]);
+assert.equal(c.childLinkPath("[[folder/Child|Label]]"), "folder/Child");
+assert.equal(c.childLinkPath({path:"folder/Child.md"}), "folder/Child.md");
+
+// Parent-owned child lists form a strict tree and reject ambiguous or cyclic edges.
+const project = (path, childPaths=[]) => ({path, label:path, childPaths});
+let hp=project("parent.md",["child.md"]), hc=project("child.md",["grandchild.md"]), hg=project("grandchild.md");
+let hierarchy=c.buildProjectHierarchy([hp,hc,hg]);
+assert.deepEqual(hierarchy.roots.map(x=>x.path),["parent.md"]);
+assert.deepEqual(hp.subprojects.map(x=>x.path),["child.md"]);
+assert.deepEqual(hc.subprojects.map(x=>x.path),["grandchild.md"]);
+let p1=project("p1.md",["shared.md"]), p2=project("p2.md",["shared.md"]), shared=project("shared.md");
+hierarchy=c.buildProjectHierarchy([p1,p2,shared]);
+assert.equal(hierarchy.roots.includes(shared),true);
+assert.equal(hierarchy.diagnostics.some(x=>x.includes("multiple project parents")),true);
+let ca=project("a.md",["b.md"]), cb=project("b.md",["a.md"]);
+hierarchy=c.buildProjectHierarchy([ca,cb]);
+assert.deepEqual(new Set(hierarchy.roots.map(x=>x.path)),new Set(["a.md","b.md"]));
+assert.equal(hierarchy.diagnostics.some(x=>x.includes("cycle")),true);
+let self=project("self.md",["self.md"]);
+hierarchy=c.buildProjectHierarchy([self]);
+assert.deepEqual(hierarchy.roots,[self]);
+assert.equal(hierarchy.diagnostics.some(x=>x.includes("own child")),true);
+const nestedTask={label:"Nested",start:day("2026-01-02"),end:day("2026-01-08"),status:"open",path:"task.md",line:1};
+const nested={path:"nested.md",label:"Nested",color:null,explicitStart:null,explicitEnd:null,tasks:[nestedTask],subprojects:[]};
+const rootProject={path:"root.md",label:"Root",color:"#123456",explicitStart:day("2026-01-01"),explicitEnd:null,tasks:[],subprojects:[nested]};
+c.finalizeProjectTree(rootProject);
+assert.equal(rootProject.start,day("2026-01-01"));
+assert.equal(rootProject.end,day("2026-01-08"));
+assert.equal(nested.color,"#123456");
+assert.equal(nestedTask.color,"#123456");
+assert.deepEqual(rootProject.children,[nested]);
 
 // Task date precedence and geometry.
 let t = c.normalizeTask({ path:"a.md", line:1, text:"Work 🛫 2026-01-01 ⏳ 2026-01-02 📅 2026-01-10 ➕ 2025-01-01" }, day("2026-01-05"), "A", 0);
