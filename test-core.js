@@ -2,6 +2,9 @@ const assert = require("node:assert/strict");
 require("./view.js");
 const c = globalThis.TimelineCore;
 const day = s => Date.parse(s + "T00:00:00Z");
+assert.equal(c.dateMs(2100), day("2100-01-01"));
+assert.equal(c.dateMs(2100), c.dateMs("2100-01-01"));
+assert.equal(c.dateMs(4102444800000), day("2100-01-01"));
 assert.equal(c.timelineColor({"timeline-color":" #5b8cff "}), "#5b8cff");
 assert.equal(c.timelineColor({}), null);
 assert.deepEqual(c.childFieldValues(null), []);
@@ -38,6 +41,13 @@ assert.equal(rootProject.end,day("2026-01-08"));
 assert.equal(nested.color,"#123456");
 assert.equal(nestedTask.color,"#123456");
 assert.deepEqual(rootProject.children,[nested]);
+
+// Expanded descendants remain visible even when only their root overlaps the date domain.
+const outside={id:"outside",kind:"project",children:[]};
+const inside={id:"inside",kind:"project",children:[outside]};
+assert.deepEqual(c.expandedRows([inside],new Set(["inside"]),item=>item===inside).map(row=>[row.item.id,row.depth]),
+  [["inside",0],["outside",1]]);
+assert.deepEqual(c.expandedRows([outside],new Set(),()=>false),[]);
 
 // Task date precedence and geometry.
 let t = c.normalizeTask({ path:"a.md", line:1, text:"Work 🛫 2026-01-01 ⏳ 2026-01-02 📅 2026-01-10 ➕ 2025-01-01" }, day("2026-01-05"), "A", 0);

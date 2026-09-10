@@ -13,7 +13,12 @@
 
   function dateMs(value) {
     if (!value) return null;
-    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return null;
+      if (Number.isInteger(value) && value >= 1000 && value <= 9999)
+        return Date.parse(String(value).padStart(4, "0") + "-01-01T00:00:00Z");
+      return value;
+    }
     if (value.ts != null) { const n = Number(value.ts); return Number.isFinite(n) ? n : null; }
     const raw = typeof value === "string" ? value : value.toISODate?.() || String(value);
     const match = raw.match(/\d{4}-\d{2}-\d{2}/);
@@ -220,9 +225,21 @@
     ];
   }
 
+  function expandedRows(roots, expanded, rootVisible, itemVisible = () => true) {
+    const rows = [];
+    function add(item, depth) {
+      if (depth === 0 && !rootVisible(item)) return;
+      if (!itemVisible(item)) return;
+      rows.push({ item, depth });
+      if (expanded.has(item.id)) for (const child of item.children || []) add(child, depth + 1);
+    }
+    for (const root of roots) add(root, 0);
+    return rows;
+  }
+
   const Core = { dateMs, timelineColor, taskDates, taskStatus, normalizeTask, childFieldValues, childLinkPath, buildProjectHierarchy, finalizeProjectTree, ordinalFromCalendarYear, calendarYearFromOrdinal,
     formatYearOrdinal, parseWikiText, linearScale, logTransform, logInverse, logScale, zoomDomain,
-    compareTasks };
+    compareTasks, expandedRows };
   if (typeof globalThis !== "undefined") globalThis.TimelineCore = Core;
   if (typeof dv === "undefined") return;
 
@@ -473,15 +490,10 @@
 
   function overlaps(item) { return item.start != null && item.start <= state.domain[1] && (item.end ?? item.start) >= state.domain[0]; }
   function visibleRows() {
-    const rows = [];
-    function add(item, depth) {
-      if (!overlaps(item)) return;
-      if (item.kind === "task" && !state.statuses.has(item.status)) return;
-      rows.push({ item, depth });
-      if (state.expanded.has(item.id)) for (const child of item.children || []) add(child, depth + 1);
-    }
-    for (const rootItem of activeRoots()) add(rootItem, 0);
-    return rows;
+    // The date domain selects roots, but descendants of an expanded root stay
+    // visible as structural rows even when their geometry is off-screen.
+    return expandedRows(activeRoots(), state.expanded, overlaps,
+      item => item.kind !== "task" || state.statuses.has(item.status));
   }
 
   function scaleFor(width) {
