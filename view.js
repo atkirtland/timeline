@@ -33,6 +33,12 @@
   function timelineCategoryColor(value, colorMap = []) {
     if (value == null) return null;
     const category = Array.isArray(value) ? value.map(String).join("") : String(value);
+    if (colorMap && !Array.isArray(colorMap) && typeof colorMap === "object") {
+      const match = Object.entries(colorMap).find(([key]) =>
+        key !== "default" && (key === "?" ? category === key : category.includes(key)));
+      const color = match?.[1] ?? colorMap.default;
+      return color == null ? null : String(color).trim() || null;
+    }
     const match = Array.from(colorMap || []).find(entry => {
       if (entry?.pattern instanceof RegExp) {
         entry.pattern.lastIndex = 0;

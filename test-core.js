@@ -20,6 +20,12 @@ assert.equal(c.timelineColor({"timeline-category":"?"}, colorMap), "black-border
 assert.equal(c.timelineColor({"timeline-category":["z", "w"]}, colorMap), "blue-border");
 assert.equal(c.timelineColor({"timeline-category":"none"}), null);
 assert.equal(c.timelineColor({"timeline-color":"#abcdef", "timeline-category":"w"}, colorMap), "#abcdef");
+const colorObject = {"?":"black", "w":"blue", "p":"pink", "default":"gray"};
+assert.equal(c.timelineColor({"timeline-category":"w"}, colorObject), "blue");
+assert.equal(c.timelineColor({"timeline-category":"project-p"}, colorObject), "pink");
+assert.equal(c.timelineColor({"timeline-category":"?"}, colorObject), "black");
+assert.equal(c.timelineColor({"timeline-category":"q?"}, colorObject), "gray");
+assert.equal(c.timelineColor({"timeline-category":"none"}, colorObject), "gray");
 assert.deepEqual(c.childFieldValues(null), []);
 assert.deepEqual(c.childFieldValues("[[One]]"), ["[[One]]"]);
 assert.deepEqual(c.childFieldValues(["[[One]]", "Two"]), ["[[One]]", "Two"]);
