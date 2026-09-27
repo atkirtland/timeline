@@ -20,8 +20,15 @@ assert.equal(c.timelineColor({"timeline-category":"?"}, colorMap), "black-border
 assert.equal(c.timelineColor({"timeline-category":["z", "w"]}, colorMap), "blue-border");
 assert.equal(c.timelineColor({"timeline-category":"none"}), null);
 assert.equal(c.timelineColor({"timeline-color":"#abcdef", "timeline-category":"w"}, colorMap), "#abcdef");
-const colorObject = {"?":"black", "w":"blue", "p":"pink", "default":"gray"};
+const colorObject = {
+  "?": {color:"black", pattern:"^(\\?)$"},
+  "w": {color:"blue", pattern:"^w(?:ork)?$"},
+  "p": {color:"pink", pattern:"project-p"},
+  "default": {color:"gray"}
+};
 assert.equal(c.timelineColor({"timeline-category":"w"}, colorObject), "blue");
+assert.equal(c.timelineColor({"timeline-category":"work"}, colorObject), "blue");
+assert.equal(c.timelineColor({"timeline-category":"new"}, colorObject), "gray");
 assert.equal(c.timelineColor({"timeline-category":"project-p"}, colorObject), "pink");
 assert.equal(c.timelineColor({"timeline-category":"?"}, colorObject), "black");
 assert.equal(c.timelineColor({"timeline-category":"q?"}, colorObject), "gray");

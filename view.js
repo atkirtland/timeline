@@ -34,9 +34,13 @@
     if (value == null) return null;
     const category = Array.isArray(value) ? value.map(String).join("") : String(value);
     if (colorMap && !Array.isArray(colorMap) && typeof colorMap === "object") {
-      const match = Object.entries(colorMap).find(([key]) =>
-        key !== "default" && (key === "?" ? category === key : category.includes(key)));
-      const color = match?.[1] ?? colorMap.default;
+      const match = Object.entries(colorMap).find(([key, entry]) => {
+        if (key === "default" || entry == null || typeof entry !== "object" || entry.pattern == null) return false;
+        try { return new RegExp(String(entry.pattern)).test(category); }
+        catch (e) { return false; }
+      });
+      const fallback = colorMap.default;
+      const color = match?.[1]?.color ?? (fallback && typeof fallback === "object" ? fallback.color : fallback);
       return color == null ? null : String(color).trim() || null;
     }
     const match = Array.from(colorMap || []).find(entry => {
@@ -312,8 +316,21 @@
   if (typeof globalThis !== "undefined") globalThis.TimelineCore = Core;
   if (typeof dv === "undefined") return;
 
-  const cfg = Object.assign({ source: "misc", pages: "", projectFolder: "misc/projects", scale: "linear",
-    initialBefore: "1 month", initialAfter: "1 month", initialYearsBack: 2000, showUncategorized: false }, input || {});
+  const cfg = Object.assign({}, input || {});
+  if (cfg.source !== "misc" && cfg.source !== "wiki")
+    throw new Error('Timeline config requires source: "misc" or source: "wiki"');
+  if (typeof cfg.pages !== "string" || !cfg.pages.trim())
+    throw new Error("Timeline config requires a non-empty pages query");
+  if (cfg.scale !== "linear" && cfg.scale !== "log")
+    throw new Error('Timeline config requires scale: "linear" or scale: "log"');
+  if (cfg.source === "misc" && (typeof cfg.projectFolder !== "string" || !cfg.projectFolder.trim()))
+    throw new Error("Misc timeline config requires a non-empty projectFolder");
+  if (cfg.source === "misc" && (typeof cfg.initialBefore !== "string" || typeof cfg.initialAfter !== "string"))
+    throw new Error("Misc timeline config requires initialBefore and initialAfter durations");
+  if (cfg.source === "misc" && typeof cfg.showUncategorized !== "boolean")
+    throw new Error("Misc timeline config requires a boolean showUncategorized value");
+  if (cfg.source === "wiki" && (!Number.isFinite(Number(cfg.initialYearsBack)) || Number(cfg.initialYearsBack) <= 0))
+    throw new Error("Wiki timeline config requires a positive initialYearsBack number");
   const sourcePath = dv.current()?.file?.path || "";
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
   const todayMs = today.getTime();
@@ -458,8 +475,8 @@
   }
   const presentOrdinal = ordinalFromCalendarYear(PRESENT_YEAR);
   function durationOffset(value, direction) {
-    const m = String(value || "1 month").trim().match(/^(\d+(?:\.\d+)?)\s*(day|week|month|year)s?$/i);
-    if (!m) return direction * 30 * DAY;
+    const m = String(value).trim().match(/^(\d+(?:\.\d+)?)\s*(day|week|month|year)s?$/i);
+    if (!m) throw new Error("Invalid timeline duration: " + value);
     const count = Number(m[1]) * direction, unit = m[2].toLowerCase();
     if (unit === "day") return count * DAY;
     if (unit === "week") return count * 7 * DAY;
@@ -468,7 +485,7 @@
     else d.setUTCFullYear(d.getUTCFullYear() + count);
     return d.getTime() - todayMs;
   }
-  state.domain = cfg.source === "wiki" ? [ordinalFromCalendarYear(PRESENT_YEAR - Number(cfg.initialYearsBack || 2000)), presentOrdinal]
+  state.domain = cfg.source === "wiki" ? [ordinalFromCalendarYear(PRESENT_YEAR - Number(cfg.initialYearsBack)), presentOrdinal]
     : [todayMs + durationOffset(cfg.initialBefore, -1), todayMs + durationOffset(cfg.initialAfter, 1)];
 
   const root = dv.el("div", "", { cls: "native-timeline", attr: { tabindex: "0" } });
@@ -480,7 +497,7 @@
   let updateUncategorizedControl = () => {};
 
   function button(label, title, fn) { const b = toolbar.createEl("button", { text: label, attr: { title } }); b.addEventListener("click", fn); return b; }
-  button("Present", "Return to the initial present-centered range", () => { state.domain = cfg.source === "wiki" ? [ordinalFromCalendarYear(PRESENT_YEAR - Number(cfg.initialYearsBack || 2000)), presentOrdinal] : [todayMs + durationOffset(cfg.initialBefore, -1), todayMs + durationOffset(cfg.initialAfter, 1)]; render(); });
+  button("Present", "Return to the initial present-centered range", () => { state.domain = cfg.source === "wiki" ? [ordinalFromCalendarYear(PRESENT_YEAR - Number(cfg.initialYearsBack)), presentOrdinal] : [todayMs + durationOffset(cfg.initialBefore, -1), todayMs + durationOffset(cfg.initialAfter, 1)]; render(); });
   button("Fit all", "Fit all dated items", () => { const values = []; for (const item of activeRoots()) walk([item], x => { if (x.start != null) values.push(x.start, x.end ?? x.start); }); if (values.length) { let a = Math.min(...values), b = Math.max(...values); const pad = (b - a || (cfg.source === "wiki" ? 10 : 7 * DAY)) * .05; state.domain = [a - pad, Math.min(b + pad, cfg.source === "wiki" ? presentOrdinal : Infinity)]; render(); } });
   if (cfg.source === "wiki") button(state.scale === "log" ? "Log" : "Linear", "Toggle axis scale", e => { state.scale = state.scale === "log" ? "linear" : "log"; e.currentTarget.textContent = state.scale === "log" ? "Log" : "Linear"; render(); });
   {
