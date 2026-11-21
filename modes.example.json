@@ -1,0 +1,17 @@
+{
+  "planning": {
+    "pattern": "^planning$",
+    "color": "#2563eb"
+  },
+  "building": {
+    "pattern": "^building$",
+    "color": "#16a34a"
+  },
+  "review": {
+    "pattern": "^review$",
+    "color": "#d97706"
+  },
+  "default": {
+    "color": "#64748b"
+  }
+}
